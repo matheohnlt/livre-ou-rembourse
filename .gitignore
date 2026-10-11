@@ -1,0 +1,29 @@
+# Environnement virtuel local
+.venv/
+env/
+venv/
+
+# Données volumineuses (brutes, nettoyées, archives)
+data/raw/
+data/processed/
+*.zip
+*.xml
+*.csv
+
+# Base locale DuckDB ou SQLite
+data/*.duckdb
+data/*.duckdb.wal
+*.sqlite3
+*.db
+
+# Artefacts de modèles entraînés (trop lourds pour Git)
+models/*.joblib
+models/*.pkl
+
+# Caches d'exécution Python et IDE
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store
+.vscode/
+.idea/
