@@ -4,8 +4,8 @@ env/
 venv/
 
 # Données volumineuses (brutes, nettoyées, archives)
-data/raw/
-data/processed/
+data/raw/*
+!data/raw/.gitkeepdata/processed/
 *.zip
 *.xml
 *.csv
