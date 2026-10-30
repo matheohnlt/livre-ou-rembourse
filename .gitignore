@@ -1,28 +1,22 @@
-# Environnement virtuel local
+# Environnement virtuel
 .venv/
-env/
 venv/
+env/
 
-# Données volumineuses (brutes, nettoyées, archives)
+# Données : seule l'archive brute Olist est versionnée (data/raw/olist.zip)
 data/raw/*
-!data/raw/.gitkeepdata/processed/
-*.zip
-*.xml
-*.csv
+!data/raw/.gitkeep
+!data/raw/olist.zip
+data/processed/
+data/*.db
 
-# Base locale DuckDB ou SQLite
-data/*.duckdb
-data/*.duckdb.wal
-*.sqlite3
-*.db
+# Modèles entraînés : regénérés par `python -m backend.train`
+models/
 
-# Artefacts de modèles entraînés (trop lourds pour Git)
-models/*.joblib
-models/*.pkl
-
-# Caches d'exécution Python et IDE
+# Caches Python, tests et IDE
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .ipynb_checkpoints/
 .DS_Store
 .vscode/
