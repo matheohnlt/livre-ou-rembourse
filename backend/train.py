@@ -15,6 +15,7 @@ import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit
 
 from backend import model as M
+from backend import segmentation as S
 from backend.config import (
     BASE,
     CHARGEMENT,
@@ -28,7 +29,7 @@ from backend.config import (
     SEED,
     SEUIL_DISTANCE_REFUS_KM,
 )
-from backend.data import charger_archive_dans_sqlite, lire_table_analyse
+from backend.data import charger_archive_dans_sqlite, lire_derniers_avis, lire_table_analyse
 
 FICHIER_PREDICTIONS = DOSSIER_MODELES / "predictions_test.csv"
 
@@ -88,6 +89,28 @@ def comparer_strategies(test: pd.DataFrame, proposee_modele, distance_mediane: f
     }
 
 
+def explorer(table: pd.DataFrame) -> dict:
+    """Chiffres d'exploration pour l'écran Exploration (toute la période, sans modèle)."""
+    par_mois = (table.assign(mois=table["date_achat"].dt.to_period("M").astype(str))
+                .groupby("mois").agg(commandes=(M.CIBLE, "size"), taux_sinistre=(M.CIBLE, "mean")).reset_index())
+    par_etat = table.groupby("etat_client").agg(
+        commandes=(M.CIBLE, "size"), taux_sinistre=(M.CIBLE, "mean"),
+        lat=("lat_client", "mean"), lng=("lng_client", "mean"),
+        delai_promis_jours=("delai_promis_jours", "median"),
+    ).reset_index()
+    avec_avis = table.merge(lire_derniers_avis(), on="commande_id")
+    avec_avis["mauvais_avis"] = avec_avis["note"] <= 2
+    avis = avec_avis.groupby(M.CIBLE)["mauvais_avis"].mean()
+    return {
+        "taux_sinistre_global": float(table[M.CIBLE].mean()),
+        "commandes": int(len(table)),
+        "par_mois": par_mois.to_dict(orient="records"),
+        "par_etat": par_etat.to_dict(orient="records"),
+        "mauvais_avis": {"sans_sinistre": float(avis.get(0)), "avec_sinistre": float(avis.get(1)),
+                          "commandes_avec_avis": int(len(avec_avis))},
+    }
+
+
 def entrainer_et_evaluer() -> dict:
     """Enchaîne toutes les étapes et renvoie les métriques (aussi sauvegardées en JSON)."""
     if not BASE.exists():
@@ -102,6 +125,16 @@ def entrainer_et_evaluer() -> dict:
     test = test.copy()
     test["proba"], test["cout_attendu"], test["proposee"] = decider_avec_modele(modele, test)
 
+    # Bonus : segments appris sur 2017, décrits sur 2017, puis appliqués au test.
+    segmentation = S.entrainer_segmentation(entrainement)
+    portrait = S.decrire_segments(entrainement, S.attribuer_segments(segmentation, entrainement))
+    noms_segments = S.nommer_segments(portrait)
+    portrait["nom"] = portrait["segment"].map(noms_segments)
+    test["segment"] = pd.Series(S.attribuer_segments(segmentation, test), index=test.index).map(noms_segments)
+    sur_le_test = test.groupby("segment").agg(taux_sinistre_test=(M.CIBLE, "mean"),
+                                              part_refusee_test=("proposee", lambda p: 1 - p.mean())).reset_index()
+    portrait = portrait.merge(sur_le_test, left_on="nom", right_on="segment", suffixes=("", "_nom")).drop(columns="segment_nom")
+
     metriques = {
         "modele_retenu": nom,
         "selection_sur_validation": selection,
@@ -115,16 +148,25 @@ def entrainer_et_evaluer() -> dict:
             "equite": M.tableau_equite(test["region_client"], test["proposee"], test[M.CIBLE]).to_dict(orient="records"),
             "importance": M.calculer_importance(modele, test).to_dict(orient="records"),
         },
+        "decision": {
+            # Seuil de coût par région (règle d'éligibilité appliquée commande par commande dans l'appli).
+            "seuils_par_region": M.calculer_seuils_par_region(test["cout_attendu"], test["region_client"]),
+        },
+        "exploration": explorer(table),
+        "segments": {
+            "choix_k": S.comparer_nombres_de_segments(entrainement).to_dict(orient="records"),
+            "portrait": portrait.to_dict(orient="records"),
+        },
         "parametres": {"prix_garantie": PRIX_GARANTIE, "chargement": CHARGEMENT,
                        "part_refus_max_par_region": PART_REFUS_MAX_PAR_REGION},
     }
 
     DOSSIER_MODELES.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"modele": modele, "nom": nom, "variables": M.VARIABLES}, FICHIER_MODELE)
+    joblib.dump({"modele": modele, "nom": nom, "variables": M.VARIABLES,
+                 "segmentation": segmentation, "noms_segments": noms_segments}, FICHIER_MODELE)
     FICHIER_METRIQUES.write_text(json.dumps(metriques, indent=2, ensure_ascii=False), encoding="utf-8")
     colonnes = ["commande_id", "date_achat", "etat_client", "region_client", "etat_vendeur", "categorie",
-                "distance_km", "delai_promis_jours", "frais_port", "indemnite", "proba", "cout_attendu",
-                "proposee", M.CIBLE]
+                *M.VARIABLES, "indemnite", "proba", "cout_attendu", "proposee", "segment", M.CIBLE]
     test[colonnes].to_csv(FICHIER_PREDICTIONS, index=False)
     return metriques
 
@@ -143,6 +185,11 @@ def afficher_resume(metriques: dict) -> None:
     for nom, resultat in metriques["test"]["strategies"].items():
         print(f"  {nom:50} proposée à {resultat['part_proposee']:6.1%}  bénéfice {resultat['benefice']:9,.0f} R$  "
               f"S/P {resultat['ratio_sinistres_primes']:.2f}")
+    print("\nSegments (K-means, appris sur 2017) :")
+    for segment in metriques["segments"]["portrait"]:
+        print(f"  {segment['nom']:42} {segment['part_commandes']:5.1%} des commandes  "
+              f"{segment['distance_km']:6.0f} km  sinistres 2017 {segment['taux_sinistre']:5.1%}  "
+              f"2018 {segment['taux_sinistre_test']:5.1%}  refusées 2018 {segment['part_refusee_test']:5.1%}")
 
 
 if __name__ == "__main__":

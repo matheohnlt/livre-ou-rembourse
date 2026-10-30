@@ -38,6 +38,9 @@ TAUX_SOUSCRIPTION = 0.20
 # Baseline « règle métier » : refuser les commandes au-delà de cette distance (même plafond par région).
 SEUIL_DISTANCE_REFUS_KM = 2000
 
+# Bonus non supervisé : nombre de segments du K-means (choix expliqué dans docs/model_card.md).
+NB_SEGMENTS = 5
+
 # Régions du Brésil, pour la vérification d'équité (l'État n'est PAS une variable du modèle).
 REGIONS = {
     "Norte": ("AC", "AP", "AM", "PA", "RO", "RR", "TO"),

@@ -129,6 +129,24 @@ def decider_eligibilite(score, seuil: float, region, part_refus_max: float = PAR
     return proposee
 
 
+def calculer_seuils_par_region(cout_attendu, region, prix: float = PRIX_GARANTIE,
+                               part_refus_max: float = PART_REFUS_MAX_PAR_REGION) -> dict:
+    """Traduit la règle d'éligibilité en un seuil de coût par région, utilisable pour une seule
+    commande : on refuse si coût attendu > seuil de sa région. Le seuil vaut le prix, sauf dans
+    les régions où cela ferait plus de `part_refus_max` de refus : il est alors relevé.
+    """
+    donnees = pd.DataFrame({"cout": np.asarray(cout_attendu, dtype=float), "region": np.asarray(region)})
+    seuils = {}
+    for nom_region, groupe in donnees.groupby("region"):
+        couts = np.sort(groupe["cout"].to_numpy())[::-1]  # du plus cher au moins cher
+        nb_refus_max = int(np.floor(part_refus_max * len(couts)))
+        if nb_refus_max >= len(couts) or couts[nb_refus_max] <= prix:
+            seuils[nom_region] = float(prix)
+        else:
+            seuils[nom_region] = float(couts[nb_refus_max])  # au-delà : les nb_refus_max plus chers
+    return seuils
+
+
 def evaluer_strategie(proposee, sinistre, indemnite, prix: float = PRIX_GARANTIE,
                       taux_souscription: float = TAUX_SOUSCRIPTION) -> dict:
     """Résultat de l'assureur : parmi les commandes à qui la garantie est proposée, une part

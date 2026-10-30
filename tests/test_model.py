@@ -1,8 +1,10 @@
-"""Tests de la logique métier : coût attendu, décision d'éligibilité, plafond d'équité, bénéfice."""
+"""Tests de la logique métier : coût attendu, décision d'éligibilité, plafond d'équité, bénéfice, segments."""
 import numpy as np
+import pandas as pd
 import pytest
 
 from backend import model as M
+from backend.segmentation import nommer_segments
 
 
 def test_cout_attendu_avec_la_marge():
@@ -52,3 +54,17 @@ def test_aucune_variable_interdite_dans_le_modele():
     interdites = {"etat_client", "etat_vendeur", "region_client", "lat_client", "lng_client",
                   "lat_vendeur", "lng_vendeur", "sinistre", "commande_id", "vendeur_id"}
     assert interdites.isdisjoint(M.VARIABLES)
+
+
+def test_les_segments_ont_des_noms_distincts():
+    # Portrait fictif de 5 segments : chaque règle doit désigner un segment différent.
+    portrait = pd.DataFrame({
+        "segment": [0, 1, 2, 3, 4],
+        "part_meme_etat": [0.0, 1.0, 0.1, 0.3, 0.0],
+        "nb_articles": [1.0, 1.0, 1.2, 3.8, 1.0],
+        "poids_g": [600, 650, 6500, 2900, 500],
+        "distance_km": [1400, 90, 570, 450, 540],
+    })
+    noms = nommer_segments(portrait)
+    assert len(set(noms.values())) == 5
+    assert noms[1].startswith("Le voisin") and noms[0].startswith("Le grand voyageur")

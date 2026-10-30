@@ -17,3 +17,12 @@ def base_test(tmp_path_factory):
 def table_analyse(base_test):
     base, _ = base_test
     return lire_table_analyse(base=base)
+
+
+@pytest.fixture(scope="session")
+def modele_entraine():
+    """Le service et l'application ont besoin du modèle : on l'entraîne s'il n'existe pas encore."""
+    from backend import service, train
+
+    if not service.modele_disponible():
+        train.entrainer_et_evaluer()

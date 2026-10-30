@@ -87,6 +87,14 @@ def lire_table_analyse(base: Path = BASE, date_debut: str = DATE_DEBUT, date_fin
     return table
 
 
+def lire_derniers_avis(base: Path = BASE) -> pd.DataFrame:
+    """La note la plus récente de chaque commande (exploration seulement, jamais dans le modèle)."""
+    if not base.exists():
+        raise FileNotFoundError(f"Base introuvable : {base}. Lancer d'abord : python -m backend.data")
+    with closing(sqlite3.connect(base)) as con:
+        return pd.read_sql(lire_requete("03_dernier_avis.sql"), con)
+
+
 if __name__ == "__main__":
     lignes = charger_archive_dans_sqlite()
     for nom_table, nombre in lignes.items():
