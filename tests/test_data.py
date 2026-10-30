@@ -42,6 +42,15 @@ def test_commandes_dans_la_periode(table_analyse):
     assert table_analyse["date_achat"].max() < pd.Timestamp(DATE_FIN)
 
 
+def test_coordonnees_dans_le_bresil_et_valeurs_impossibles_corrigees(table_analyse):
+    # Les points GPS hors du Brésil et les poids nuls sont des erreurs : la requête SQL les écarte.
+    lat = table_analyse["lat_client"].dropna()
+    assert lat.between(-34.0, 5.3).all()
+    assert not (table_analyse["poids_total_g"] == 0).any()
+    assert (table_analyse["nb_mensualites"] >= 1).all()
+    assert table_analyse["type_paiement"].notna().all()
+
+
 def test_distance_sao_paulo_rio():
     # São Paulo -> Rio de Janeiro : environ 360 km à vol d'oiseau.
     distance = calculer_distance_km(-23.55, -46.63, -22.91, -43.17)

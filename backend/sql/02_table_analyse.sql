@@ -29,7 +29,8 @@ resume_articles AS (
         COUNT(DISTINCT a.product_id) AS nb_produits,
         SUM(a.price)                 AS prix_total,
         SUM(a.freight_value)         AS frais_port,
-        SUM(p.product_weight_g)      AS poids_total_g,
+        -- Un poids de 0 g est impossible : traité comme manquant (NULL).
+        SUM(NULLIF(p.product_weight_g, 0)) AS poids_total_g,
         SUM(p.product_length_cm * p.product_height_cm * p.product_width_cm) AS volume_total_cm3
     FROM articles AS a
     LEFT JOIN produits AS p ON p.product_id = a.product_id
@@ -49,22 +50,26 @@ article_principal AS (
 ),
 
 -- 4. Le mode de paiement choisi au paiement (premier paiement) et le nombre de mensualités.
+--    0 mensualité est impossible : ramené à 1 (paiement comptant).
 resume_paiements AS (
     SELECT
         order_id,
         MAX(CASE WHEN payment_sequential = 1 THEN payment_type END) AS type_paiement,
-        MAX(payment_installments)                                     AS nb_mensualites
+        MAX(MAX(payment_installments), 1)                             AS nb_mensualites
     FROM paiements
     GROUP BY order_id
 ),
 
--- 5. Un seul point GPS par code postal : la moyenne des points disponibles.
+-- 5. Un seul point GPS par code postal : la moyenne des points disponibles, en écartant
+--    les 42 points situés hors du Brésil (erreurs de géocodage).
 geo AS (
     SELECT
         geolocation_zip_code_prefix AS code_postal,
         AVG(geolocation_lat)        AS lat,
         AVG(geolocation_lng)        AS lng
     FROM geolocalisation
+    WHERE geolocation_lat BETWEEN -34.0 AND 5.3
+      AND geolocation_lng BETWEEN -74.0 AND -34.7
     GROUP BY geolocation_zip_code_prefix
 )
 
@@ -88,8 +93,8 @@ SELECT
     gv.lng                     AS lng_vendeur,
     gc.lat                     AS lat_client,
     gc.lng                     AS lng_client,
-    rp.type_paiement,
-    rp.nb_mensualites,
+    COALESCE(rp.type_paiement, 'inconnu') AS type_paiement,
+    COALESCE(rp.nb_mensualites, 1)        AS nb_mensualites,
     -- La cible : livré après la date promise (au jour près), ou jamais livré.
     CASE
         WHEN c.order_delivered_customer_date IS NULL THEN 1
