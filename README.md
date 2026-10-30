@@ -36,6 +36,8 @@ python -m pytest                         # 18 tests
 python -m streamlit run frontend/app.py  # démonstrateur, 5 écrans
 ```
 
+**Première installation, pas à pas** (récupérer la branche, créer l'environnement, résoudre les erreurs fréquentes) : voir le [guide d'installation](docs/installation.md).
+
 **Données :** l'archive Kaggle d'origine est versionnée telle quelle dans `data/raw/olist.zip` (45 Mo, jamais modifiée). Elle est lue directement, sans décompression ni clé Kaggle.
 
 ## Architecture : backend et frontend séparés
@@ -89,4 +91,4 @@ data/raw/olist.zip             données brutes
 
 ## Documents
 
-[Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)
+[Guide d'installation](docs/installation.md) · [Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)
