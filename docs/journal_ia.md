@@ -1,0 +1,27 @@
+# Journal d'usage de l'IA
+
+> Pour N3 (critère 4). Une ligne par usage important. Les catégories sont celles de la checklist d'audit du TD 4.
+
+**Outil utilisé :** Claude (Anthropic), en conversation, pour le cadrage, le code, les tests et la relecture. Chaque fichier proposé a été relu, exécuté sur nos machines et vérifié par les tests avant d'être commité.
+
+| # | Fichier ou étape | Le prompt (résumé) | Ce que l'IA a produit | Gardé | Corrigé, et pourquoi | Refusé, et pourquoi |
+|---|---|---|---|---|---|---|
+| 1 | Cadrage (`note_cadrage.md`) | « Propose une problématique créative et business sur Olist, conforme au cahier des charges » | Plusieurs sujets testés sur les données : mauvais avis, date promise, vendeurs qui arrêtent, assurance retard | L'assurance retard « Livré ou Remboursé » | Les idées de l'équipe (le retard pour Mathéo, la date promise pour Thibaut) sont devenues la cible et l'événement assuré | Le sujet « vendeurs qui arrêtent » : le modèle battait à peine une règle simple, pour 7 % du chiffre d'affaires (**décision business**) |
+| 2 | Décision (`model.py`) | « Quelle décision pour la garantie ? » | Un tarif à 3 prix (2, 4 ou 8 R$) selon le risque | | | **Refusé** : il ne gagnait que parce qu'il était plus cher en moyenne (4,52 R$ contre 4 R$). Un prix unique de 4,52 R$ faisait presque autant. Le modèle n'y apportait rien (**décision business**). |
+| 3 | Décision (`model.py`) | Même question, deuxième essai | Une franchise de 7 jours sur les commandes risquées | | | **Refusé** : une franchise pour TOUS, sans modèle, rapportait encore plus. Avec notre hypothèse de souscription, réduire la couverture « rapporte » toujours (**décision business**). Retenu à la place : l'éligibilité, la seule décision où un contrôle au hasard prouve la valeur du modèle. |
+| 4 | Équité (`model.py`, `config.py`) | « Le modèle refuse surtout le Nord-Est, est-ce acceptable ? » | La règle « au plus X % de refus par région », avec le coût de chaque niveau | La règle, à 20 % (choix de l'équipe) | | Le refus sans plafond (83 % de refus dans le Nordeste et le Norte), malgré un bénéfice plus élevé (**sécurité et RGPD**, équité) |
+| 5 | Baseline (`note_cadrage.md`) | « Fixe le prix de la garantie » | Un prix de 4 R$ justifié par le coût moyen de **toute** la période (3,14 R$) | Le prix de 4 R$ | Le coût moyen incluait 2018, donc le test. Recalculé sur 2017 seulement (2,68 R$ × 1,3 = 3,49 R$, arrondi à 4 R$) (**fuite de données**) | |
+| 6 | Choix des variables (`model.py`) | « Quelles variables garder ? » | Des essais en retirant ou ajoutant des variables, mesurés d'abord **sur le test 2018** | Le retrait du mois et de l'historique du vendeur | Essais refaits sur la **validation 2017**, qui donne les mêmes conclusions. Le test n'est plus regardé qu'une fois, à la fin (**validation**) | |
+| 7 | Variables (`model.py`) | « Ajoute l'historique de retard du vendeur » | Un calcul sans fuite (seulement les commandes livrées avant l'achat, via `merge_asof`) | | | Retiré : il fait baisser la ROC-AUC de validation (0,573 → 0,563) (**validation**) |
+| 8 | SQL (`02_table_analyse.sql`) | « Construis la table d'analyse, une ligne par commande » | Des CTE qui agrègent articles, paiements et GPS avant les jointures | Toute la structure | Ajouts après exploration : points GPS hors du Brésil écartés, poids de 0 g et 0 mensualité corrigés, 8 commandes contradictoires exclues (**correct**) | |
+| 9 | Frontend (`decision.py`) | « Écran Devis avec des curseurs » | Des curseurs initialisés avec les valeurs de la commande | Les curseurs | Des valeurs réelles dépassaient l'échelle (1 795 R$ de port, 156 jours, 184 kg) : l'écran aurait planté. Valeurs bornées (**robustesse**) | |
+| 10 | Tests (`tests/`) | « Écris des tests utiles » | 18 tests : données, logique métier, service, démarrage de l'appli, imports du frontend | Tous | Le test du simulateur vérifie que l'appli redonne exactement les chiffres de l'entraînement, donc du README (**tests**) | |
+| 11 | `requirements.txt` | « Nettoie les dépendances de l'ancien sujet » | Suppression de `duckdb`, `lxml`, `requests` et `matplotlib` ; versions fixées | Tout | | Le téléchargement Kaggle par API : il exige une clé personnelle, donc un secret. Remplacé par l'archive versionnée (**sécurité et RGPD**, **reproductibilité**) |
+
+**Point connu, non corrigé :** l'avertissement `OptimizeWarning: Unknown solver options: iprint` vient d'une incompatibilité entre les versions de SciPy et de scikit-learn 1.6. Il n'a aucun effet sur les résultats, qui sont identiques sur nos machines (**dépendances**).
+
+## Bilan en 3 lignes
+
+- **Ce que l'IA nous a fait gagner :** l'écriture du SQL, du pipeline et de l'application, et surtout des essais rapides de plusieurs décisions sur les vraies données avant de choisir.
+- **L'erreur de l'IA qui nous aurait coûté le plus cher :** le tarif à 3 prix (ligne 2). Le bénéfice affiché était doublé, mais il ne venait pas du modèle. Le COMEX ou le formateur l'auraient vu.
+- **Ce que nous ne lui confierions pas sans relecture :** la définition de la décision et de la baseline. L'IA a produit deux fois une décision qui « gagnait » pour une mauvaise raison, et une baseline calculée avec le test.

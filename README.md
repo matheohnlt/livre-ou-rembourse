@@ -1,93 +1,92 @@
-# Data_Mining_M2
+# 📦 Livré ou Remboursé : une garantie retard rentable et équitable
 
+Projet du cours Data Mining 1 (Master SEP, URCA). Client fictif : **AssurColis**, assurtech partenaire de la marketplace Olist. Données réelles : [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) (CC BY-NC-SA 4.0).
 
+## Question business
 
-## Getting started
+AssurColis veut proposer au paiement une garantie à **4 R$** : si le colis arrive après la date promise, le client récupère ses frais de port et un bon de 15 R$. **À quelles commandes proposer la garantie pour qu'elle soit rentable, sans exclure les clients des régions éloignées ?**
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Résultats (test : janvier à août 2018, 53 344 commandes jamais vues par le modèle)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Hypothèse : 20 % des clients achètent la garantie quand elle leur est proposée. Elle change les montants, pas le classement.
 
-## Add your files
+| Stratégie | Garantie proposée à | Bénéfice | Sinistres / primes |
+|---|---|---|---|
+| Proposer à tous (situation sans modèle) | 100 % | 5 191 R$ | 0,88 |
+| Règle simple : refuser au-delà de 2 000 km | 97 % | 6 721 R$ | 0,84 |
+| Contrôle : refuser au hasard autant que le modèle | 82 % | 4 578 R$ | 0,87 |
+| Modèle sans règle d'équité | 73 % | 13 329 R$ | 0,57 |
+| **Modèle + au plus 20 % de refus par région (recommandé)** | **82 %** | **11 049 R$** | **0,68** |
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+- **Le bénéfice est multiplié par 2,1.** Le gain vient bien du modèle : refuser au hasard le même nombre de commandes ne rapporte rien.
+- **L'équité coûte 2 280 R$.** Sans la règle, 83 % des commandes du Nordeste et du Norte seraient refusées.
+- **Modèle :** forêt aléatoire choisie sur une validation 2017. ROC-AUC de 0,64 sur le test, de 0,60 ± 0,02 en validation croisée temporelle ; PR-AUC de 0,144 contre 0,087 au hasard.
+- **Variables les plus utilisées :** la distance, le délai promis et le fait d'être dans le même État (importance par permutation).
+- **5 profils de commandes (K-means, bonus) :** le plus risqué en 2018 est le « petit colis entre États » (11,7 % de retards), pas le « grand voyageur » (7,0 %), à qui Olist promet déjà un long délai.
+- **63 % des commandes en retard reçoivent un avis de 1 ou 2 étoiles, contre 9 % des autres :** la garantie répond à un vrai besoin.
+
+## Lancer le projet
+
+Dans un environnement virtuel Python 3.12 (`python -m venv .venv`, puis `.venv\Scripts\activate` sous Windows ou `source .venv/bin/activate` sous Mac et Linux) :
+
+```bash
+pip install -r requirements.txt
+python -m backend.train                  # archive -> SQLite (SQL) -> choix du modèle -> test 2018 (environ 1 min)
+python -m pytest                         # 18 tests
+python -m streamlit run frontend/app.py  # démonstrateur, 5 écrans
+```
+
+**Données :** l'archive Kaggle d'origine est versionnée telle quelle dans `data/raw/olist.zip` (45 Mo, jamais modifiée). Elle est lue directement, sans décompression ni clé Kaggle.
+
+## Architecture : backend et frontend séparés
 
 ```
-cd existing_repo
-git remote add origin https://gitlab-mi.univ-reims.fr/hena0006/data_mining_m2.git
-git branch -M main
-git push -uf origin main
+backend/                       logique métier (aucun import de streamlit)
+  config.py                    chemins, seed, périodes, prix, bon, marge, plafond d'équité
+  sql/01_creation_tables.sql   les 9 tables Olist dans SQLite (types, clés primaires)
+  sql/02_table_analyse.sql     table d'analyse : une ligne par commande, infos connues au paiement
+  sql/03_dernier_avis.sql      dernier avis par commande (fonction de fenêtre), exploration seulement
+  data.py                      archive -> SQLite -> table d'analyse ; distance vendeur -> client
+  model.py                     variables, modèles, décision d'éligibilité, règle d'équité, métriques
+  segmentation.py              K-means et personas (bonus non supervisé)
+  train.py                     python -m backend.train : choix sur validation 2017, test 2018, sauvegarde
+  service.py                   SEULE interface appelée par le frontend
+frontend/
+  app.py                       Streamlit : 5 onglets, affichage et saisie uniquement
+  view/                        Devis, Simulateur, Exploration, Équité, Le modèle
+tests/                         données, logique métier, service, démarrage de l'appli
+docs/                          note de cadrage, Data Quality Card, Model Card, journal IA, note de synthèse
+data/raw/olist.zip             données brutes
 ```
 
-## Integrate with your tools
+**Règle :** le frontend n'importe que `backend.service`, ce qu'un test vérifie. Sans le frontend, `python -m backend.train` fait tout le travail.
 
-* [Set up project integrations](https://gitlab-mi.univ-reims.fr/hena0006/data_mining_m2/-/settings/integrations)
+## Les 5 écrans
 
-## Collaborate with your team
+| Écran | Pour qui | Ce qu'il montre |
+|---|---|---|
+| 🛒 Devis | Service client, démo | Une commande → risque de retard, coût attendu, garantie proposée ou non, et pourquoi |
+| 💰 Simulateur | DAF | Bénéfice et ratio sinistres / primes selon le prix, le bon, la marge, la souscription et le plafond |
+| 🗺️ Exploration | Marketing | Retards et mauvais avis, évolution mensuelle, carte par État, 5 personas |
+| ⚖️ Équité | DPO | Refus par région avec et sans la règle, coût de l'équité, seuils par région |
+| 🧠 Le modèle | DSI, jury | Choix du modèle, performances, calibration, variables importantes, limites |
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Limites
 
-## Test and Deploy
+- **Hypothèse non observable :** la part de clients qui achèteraient la garantie (20 %), et le fait qu'elle soit la même quel que soit le risque du client.
+- **Le modèle sous-estime le niveau du risque en 2018** (7,0 % prédit contre 8,7 % observé), car les retards ont augmenté. Il classe pourtant bien : de 3,5 % à 17,6 % de retards entre la tranche la plus sûre et la plus risquée.
+- **Il ne prévoit pas les crises :** en février-mars 2018, les retards ont triplé. D'où le suivi mensuel et la règle de réentraînement (voir `docs/model_card.md`).
+- **Une ROC-AUC de 0,64 reste modeste :** les causes des retards (grèves, transporteur, météo) ne sont pas dans les données.
+- **Les données datent de 2017-2018** et forment un échantillon public d'Olist.
 
-Use the built-in continuous integration in GitLab.
+## Retours du COMEX et ce que nous avons changé
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+*À compléter après la soutenance du J3.*
 
-***
+| Retour | Ce que nous avons changé |
+|---|---|
+| | |
 
-# Editing this README
+## Documents
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+[Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)
