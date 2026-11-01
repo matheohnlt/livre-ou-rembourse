@@ -1,0 +1,931 @@
+% Rapport sur le modèle actuel — projet « Livré ou Remboursé »
+% Compilation : xelatex rapport_modele_actuel.tex (deux passes)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{french}
+\setmainfont{TeX Gyre Pagella}
+\setsansfont{TeX Gyre Heros}
+\setmonofont{DejaVu Sans Mono}[Scale=0.85]
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={,}, group-separator={\,}, group-minimum-digits=4}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\setlist{itemsep=2pt, topsep=4pt}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small, labelfont=bf}
+
+\definecolor{encre}{HTML}{1F3A4D}
+\definecolor{sinistre}{HTML}{B5462E}
+\definecolor{prudence}{HTML}{C98B1C}
+\definecolor{correct}{HTML}{2F6F5E}
+\definecolor{gris}{HTML}{6B7680}
+\definecolor{fond}{HTML}{EEF2F4}
+
+\titleformat{\section}{\sffamily\Large\bfseries\color{encre}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\sffamily\large\bfseries\color{encre}}{\thesubsection}{0.8em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small\color{gris}Livré ou Remboursé — modèle actuel}
+\fancyhead[R]{\sffamily\small\color{gris}AssurColis}
+\fancyfoot[C]{\sffamily\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\newtcolorbox{encadre}[1][]{colback=fond, colframe=encre, boxrule=0.5pt, arc=1pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, fonttitle=\sffamily\bfseries, #1}
+
+\newcommand{\RS}{\,R\$}
+\newcommand{\var}[1]{\texttt{#1}}
+
+\begin{document}
+\sloppy
+
+% ------------------------------------------------------------------ Titre
+\begin{titlepage}
+\vspace*{3cm}
+{\sffamily\color{gris}\large Master SEP — Data Mining\par}
+\vspace{0.6cm}
+{\sffamily\bfseries\color{encre}\fontsize{30}{36}\selectfont Livré ou Remboursé\par}
+\vspace{0.4cm}
+{\raggedright\sffamily\Large Rapport sur le modèle actuel de prédiction des retards de livraison\par}
+\vspace{1.2cm}
+{\color{encre}\rule{\linewidth}{0.8pt}}
+\vspace{0.6cm}
+
+\begin{tabular}{@{}ll}
+\textbf{Modèle évalué} & forêt aléatoire \var{foret\_100} (300 arbres) \\
+\textbf{Données} & Olist, e-commerce brésilien (Kaggle, CC BY-NC-SA 4.0) \\
+\textbf{Entraînement} & commandes de janvier à décembre 2017 (\num{43956}) \\
+\textbf{Test} & commandes du 1\textsuperscript{er} janvier au 29 août 2018 (\num{53344}) \\
+\textbf{Objet} & état des lieux avant le travail d'amélioration \\
+\end{tabular}
+
+\vfill
+{\sffamily\color{gris}31 octobre 2026\par}
+\end{titlepage}
+
+% ------------------------------------------------------------------ Synthèse
+\section*{Synthèse}
+
+\begin{encadre}[title=En une phrase]
+Le modèle actuel est \textbf{utile pour l'assureur} (il double le bénéfice par rapport à la
+situation sans modèle) mais \textbf{faible statistiquement} (ROC-AUC de 0,641) et
+\textbf{sous-estime le risque en 2018}, ce qui laisse une marge d'amélioration nette.
+\end{encadre}
+
+\vspace{0.3cm}
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}lr>{\raggedright\arraybackslash}X@{}}
+\toprule
+Indicateur (test 2018) & Valeur & Lecture \\
+\midrule
+Bénéfice de l'assureur & \num{11049}\RS{} & $\times 2{,}1$ par rapport à « proposer à tous » (\num{5191}\RS) \\
+Ratio sinistres / primes & 0,68 & 68\RS{} de sinistres pour 100\RS{} de primes \\
+Part des commandes à qui on propose & 81,8\,\% & 18,2\,\% de refus \\
+ROC-AUC & 0,641 & 0,5 = hasard ; capacité de tri modeste \\
+PR-AUC & 0,144 & hasard = 0,087 (taux de sinistre) \\
+Score de Brier & 0,0783 & référence sans modèle : 0,0795 \\
+Probabilité moyenne prédite & 7,0\,\% & taux réel : 8,7\,\% (sous-estimation) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Ce qui fonctionne.} La démarche est rigoureuse : split temporel, test regardé une
+seule fois, choix du modèle sur une métrique métier, contrôle par refus au hasard, contrainte
+d'équité respectée dans les cinq régions.
+
+\paragraph{Ce qui limite le modèle.} Une capacité de tri modeste, des probabilités trop basses
+dans les tranches risquées, deux variables qui dégradent le classement, et une forte dérive du
+taux de retard entre 2017 et 2018.
+
+\paragraph{Premiers essais (section 7).} Retirer les deux variables est neutre et la
+calibration dégrade le résultat : le défaut de calibration vient de la dérive temporelle. La
+régression logistique trie mieux que la forêt.
+
+\paragraph{Nouveau modèle (section 8).} Une régression logistique avec trois variables
+« trajet » (historique des livraisons entre l'État du vendeur et celui du client) porte la
+ROC-AUC du test 2018 de 0,641 à \textbf{0,673} et le bénéfice de \num{11049} à
+\textbf{12\,238\RS} (+11\,\%). Le plafond de 20\,\% par région est respecté, mais les refus
+se concentrent davantage sur certains États (58\,\% à Rio de Janeiro).
+
+\paragraph{Choix d'équité (section 9).} L'équipe a retenu un \textbf{plafond de 20\,\% de refus
+par État}. Tous les États sont désormais à 20\,\% de refus au plus ; le bénéfice sur le test
+2018 est de \textbf{9\,417\RS} ($\times 1{,}8$ par rapport à « proposer à tous »), soit
+\num{2821}\RS{} de moins qu'avec un plafond par région.
+
+\newpage
+% ------------------------------------------------------------------ Comparaison
+\section*{Modèle initial et modèle final}
+
+\begin{encadre}[title=En une phrase]
+Le modèle final \textbf{prédit mieux} et \textbf{traite tous les États de la même façon}, mais
+il rapporte \textbf{\num{1632}\RS{} de moins} sur le test 2018 que le modèle initial : ce coût
+vient du choix d'équité par État, pas d'une moins bonne qualité de prédiction.
+\end{encadre}
+
+\subsection*{Ce qui a changé}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+& Modèle initial & Modèle final \\
+\midrule
+Algorithme & Forêt aléatoire (300 arbres) & Régression logistique \\
+Variables & 11 & 12 : 9 de base + 3 « trajet » \\
+Choix du modèle & Bénéfice, 1 fenêtre de validation & ROC-AUC moyenne, 2 fenêtres \\
+Règle d'équité & 20\,\% de refus au plus par région & 20\,\% de refus au plus par État \\
+Tests automatiques & 18 & 23, dont 4 contre les fuites \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection*{Qualité des prédictions}
+
+Ces mesures ne dépendent pas de la règle d'équité.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+& Initial & Final \\
+\midrule
+ROC-AUC, validation 2017 (moyenne des 2 fenêtres) & 0,590 & \textbf{0,644} \\
+ROC-AUC, test 2018 & 0,641 & \textbf{0,673} \\
+PR-AUC, test 2018 (hasard : 0,087) & 0,144 & \textbf{0,150} \\
+Score de Brier & 0,0783 & \textbf{0,0776} \\
+Probabilité moyenne prédite (réel : 8,7\,\%) & 7,0\,\% & \textbf{9,0\,\%} \\
+Taux de retard des 10\,\% les plus risqués & 17,6\,\% & 17,6\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Résultats sur le test 2018, chacun avec sa règle}
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+& Initial (par région) & Final (par État) \\
+\midrule
+Bénéfice & \textbf{11\,049\RS{}} & \num{9417}\RS{} \\
+Ratio sinistres / primes & \textbf{0,68} & 0,74 \\
+Garantie proposée à & 81,8\,\% & \textbf{83,9\,\%} \\
+Refus par État (États d'au moins 200 commandes) & 9 à 39\,\% & \textbf{11 à 20\,\%} \\
+Taux de retard des commandes refusées / acceptées & 11,0 / 8,2\,\% & 9,9 / 8,5\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{À règle égale}
+
+Pour séparer l'effet du modèle de celui de la règle, chaque modèle est évalué avec les deux
+règles (bénéfice sur le test 2018) :
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+& Initial & Final & Écart \\
+\midrule
+Plafond de 20\,\% par région & \num{11049}\RS{} & \textbf{12\,238\RS{}} & +\num{1189}\RS{} \\
+Plafond de 20\,\% par État & \textbf{10\,615\RS{}} & \num{9417}\RS{} & $-$\num{1198}\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{Le modèle final prédit mieux} sur toutes les mesures, en 2017 comme en 2018, et
+        ne sous-estime plus le niveau du risque.
+  \item \textbf{Son avantage vient surtout de la géographie.} Avec un plafond par région, il
+        gagne \num{1189}\RS{} en refusant davantage à Rio de Janeiro et en Espírito Santo. Le
+        plafond par État lui retire cet avantage : à l'intérieur d'un même État, il ne classe pas
+        mieux que le modèle initial.
+  \item \textbf{Les deux modèles prennent la même décision pour 89\,\% des commandes.}
+  \item \textbf{Le modèle final reste celui choisi sur la validation 2017}, où il devance la forêt
+        initiale même avec le plafond par État (\num{4188} contre \num{4145}\RS{} de bénéfice
+        moyen). Revenir à la forêt parce qu'elle fait mieux en 2018 reviendrait à choisir le modèle
+        sur le test.
+\end{itemize}
+
+\newpage
+% ------------------------------------------------------------------ 1. Problématique
+\section{Problématique}
+
+AssurColis, une insurtech fictive, veut proposer aux acheteurs de la plateforme Olist une
+\textbf{garantie de livraison} au moment du paiement :
+\begin{itemize}
+  \item prix unique : \textbf{4\RS} par commande ;
+  \item en cas de retard (le \emph{sinistre}), le client est remboursé de ses frais de port et
+        reçoit un bon d'achat de \textbf{15\RS}.
+\end{itemize}
+
+La question posée au modèle est donc : \emph{au moment du paiement, quelle est la probabilité
+que ce colis arrive après la date promise ?} La réponse sert à décider, commande par commande,
+si l'on propose la garantie.
+
+\subsection{La règle de décision}
+
+Pour chaque commande, on calcule le coût attendu chargé de la marge de l'assureur :
+\[
+  \text{coût attendu} = \hat{p}_{\text{retard}} \times (\text{frais de port} + 15) \times 1{,}3
+\]
+La garantie est proposée si ce coût est inférieur ou égal au prix, 4\RS. Le refus dépend donc
+à la fois du risque prédit et du montant de l'indemnité : un colis cher à expédier peut être
+refusé même avec un risque moyen.
+
+\subsection{La contrainte d'équité}
+
+L'État du client n'est pas une variable du modèle, mais la distance et le délai promis sont
+fortement liés à la géographie. Pour éviter d'exclure de fait les régions éloignées, la règle
+impose \textbf{au plus 20\,\% de refus dans chacune des cinq régions du Brésil}. Quand une
+région dépasse ce plafond, on re-propose la garantie aux commandes refusées les moins risquées.
+
+\subsection{Hypothèse de souscription}
+
+On suppose que 20\,\% des clients à qui la garantie est proposée l'achètent. Cette hypothèse
+n'est pas observable ; elle multiplie tous les bénéfices sans changer le classement des
+stratégies.
+
+% ------------------------------------------------------------------ 2. Données
+\section{Données}
+
+\subsection{Source et périmètre}
+
+Les données proviennent du jeu public Olist (commandes, clients, vendeurs, produits, paiements,
+avis, géolocalisation), chargé dans une base SQLite. Le périmètre retenu va de janvier 2017 à
+août 2018, soit \num{97300} commandes livrées dont 7,8\,\% en retard. Avant 2017, les commandes
+sont trop rares ; après août 2018, l'issue des commandes n'est pas encore connue.
+
+Le retard a un vrai coût pour la plateforme : \textbf{63\,\% des commandes en retard reçoivent
+un avis de 1 ou 2 étoiles}, contre 9\,\% des commandes livrées à temps.
+
+\subsection{Découpage temporel}
+
+\begin{center}
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Rôle & Période & Commandes & Taux de retard \\
+\midrule
+Choix du modèle : apprentissage & janv.–sept. 2017 & --- & --- \\
+Choix du modèle : validation & oct.–déc. 2017 & --- & --- \\
+Entraînement final & janv.–déc. 2017 & \num{43956} & 6,8\,\% \\
+Test (regardé une seule fois) & janv.–août 2018 & \num{53344} & 8,7\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ce découpage simule une mise en production : le modèle n'a jamais vu de commande postérieure
+à celles qu'il doit juger.
+
+\subsection{Variables utilisées}
+
+Seules les informations connues \emph{au moment du paiement} sont utilisées.
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+Variable & Contenu \\
+\midrule
+\var{delai\_promis\_jours} & délai annoncé au client entre l'achat et la livraison \\
+\var{distance\_km} & distance entre le vendeur et le client \\
+\var{meme\_etat} & 1 si le vendeur et le client sont dans le même État \\
+\var{frais\_port} & frais de port payés (R\$) \\
+\var{prix\_total} & montant des articles (R\$) \\
+\var{poids\_total\_g}, \var{volume\_total\_cm3} & poids et volume du colis \\
+\var{nb\_articles}, \var{nb\_vendeurs} & complexité de la commande \\
+\var{nb\_mensualites} & nombre de paiements échelonnés \\
+\var{type\_paiement} & carte, boleto, voucher, débit (catégorielle) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Variables écartées volontairement.} L'État et les coordonnées GPS (équité), le mois
+et le jour d'achat (ils apprennent des pics de 2017 qui ne se répètent pas), l'historique de
+retard du vendeur et la catégorie de produit (aucun gain en validation).
+
+% ------------------------------------------------------------------ 3. Modèle
+\section{Le modèle}
+
+\subsection{Pipeline}
+
+Le modèle est un \var{Pipeline} scikit-learn en deux blocs :
+\begin{enumerate}
+  \item \textbf{Préparation} (\var{ColumnTransformer}) : pour les dix variables numériques,
+        imputation des valeurs manquantes par la médiane puis standardisation ; pour
+        \var{type\_paiement}, encodage one-hot. Ces transformations sont apprises sur
+        l'entraînement seulement.
+  \item \textbf{Estimateur} : \var{RandomForestClassifier} avec 300 arbres,
+        \var{min\_samples\_leaf=100}, \var{max\_features="sqrt"}, \var{random\_state=42}.
+\end{enumerate}
+
+Le paramètre \var{min\_samples\_leaf=100} impose qu'une feuille regroupe au moins 100 commandes,
+ce qui lisse les probabilités et limite le surapprentissage sur une cible rare (7\,\%).
+
+\subsection{Choix du modèle}
+
+Quatre candidats ont été comparés sur la validation d'octobre à décembre 2017, avec comme
+critère le \textbf{bénéfice de l'assureur} et non la ROC-AUC.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Candidat & ROC-AUC validation & Bénéfice validation \\
+\midrule
+Régression logistique & \textbf{0,602} & \num{2710}\RS{} \\
+Forêt, feuilles $\geq 50$ & 0,569 & \num{2636}\RS{} \\
+\textbf{Forêt, feuilles $\geq 100$ (retenue)} & 0,574 & \textbf{2\,742\RS} \\
+Forêt, feuilles $\geq 200$ & 0,575 & \num{2608}\RS{} \\
+Proposer à tous (sans modèle) & 0,500 & \num{797}\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{encadre}[colframe=prudence, title=Point d'attention]
+La forêt retenue devance la régression logistique de seulement \textbf{32\RS} (1,2\,\%) en
+bénéfice, alors que la logistique classe mieux (ROC-AUC 0,602 contre 0,574). L'écart est trop
+faible pour être significatif sur une validation de trois mois : le choix de la forêt est
+fragile.
+\end{encadre}
+
+\subsection{Stabilité dans le temps}
+
+Une validation croisée temporelle en quatre plis sur 2017 (on apprend toujours sur le passé et
+on juge sur la suite) donne une ROC-AUC de \textbf{0,602 $\pm$ 0,016}
+(plis : 0,579 ; 0,611 ; 0,623 ; 0,597). Le modèle est stable, mais à un niveau modeste.
+
+% ------------------------------------------------------------------ 4. Résultats
+\section{Résultats sur le test 2018}
+
+\subsection{Comparaison des stratégies}
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Stratégie & Proposée à & Bénéfice & S/P \\
+\midrule
+Proposer à tous (situation actuelle) & 100,0\,\% & \num{5191}\RS{} & 0,88 \\
+Règle : refuser au-delà de \num{2000} km & 97,1\,\% & \num{6721}\RS{} & 0,84 \\
+Contrôle : refus au hasard (même nombre) & 81,8\,\% & \num{4578}\RS{} & 0,87 \\
+Modèle, sans plafond par région & 73,3\,\% & \num{13329}\RS{} & 0,57 \\
+\textbf{Modèle, plafond de 20\,\% par région} & \textbf{81,8\,\%} & \textbf{11\,049\RS} & \textbf{0,68} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item Le modèle bat le contrôle au hasard de \num{6471}\RS{} : son gain vient bien du tri des
+        commandes et pas seulement du fait de refuser.
+  \item La contrainte d'équité coûte \textbf{2\,279\RS} (\num{13329} contre
+        \num{11049}). C'est le prix d'un traitement comparable entre régions.
+\end{itemize}
+
+\subsection{Capacité de tri}
+
+\begin{itemize}
+  \item \textbf{ROC-AUC 0,641} : en tirant au hasard une commande en retard et une commande à
+        l'heure, le modèle donne le risque le plus élevé à la première dans 64\,\% des cas.
+  \item \textbf{PR-AUC 0,144}, contre 0,087 pour un tri au hasard : gain réel, mais faible.
+  \item Le décile le plus risqué a un taux de retard de 17,6\,\%, cinq fois celui du décile le
+        moins risqué (3,5\,\%). Le modèle sépare bien les extrêmes.
+\end{itemize}
+
+\subsection{Calibration}
+
+La décision utilise directement la probabilité prédite : si elle est trop basse, le coût
+attendu est sous-estimé et l'assureur propose la garantie à des commandes non rentables.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.82\linewidth, height=6.6cm,
+  xlabel={Tranche de risque prédit (décile)}, ylabel={Taux de retard (\%)},
+  xmin=0.5, xmax=10.5, ymin=0, ymax=19,
+  xtick={1,...,10}, ymajorgrids, grid style={gris!25},
+  legend cell align=left, legend style={at={(0.03,0.97)}, anchor=north west, draw=none, fill=white, font=\small},
+  tick label style={font=\small}, label style={font=\small},
+]
+\addplot[ybar, area legend, bar width=12pt, fill=encre!25, draw=encre!60] coordinates {
+  (1,3.39) (2,4.38) (3,5.06) (4,5.70) (5,6.30) (6,6.85) (7,7.45) (8,8.18) (9,9.32) (10,13.10)};
+\addlegendentry{Probabilité moyenne prédite}
+\addplot[mark=*, thick, color=sinistre] coordinates {
+  (1,3.51) (2,3.90) (3,5.68) (4,7.16) (5,7.46) (6,8.79) (7,10.10) (8,10.46) (9,12.37) (10,17.64)};
+\addlegendentry{Taux de retard observé}
+\end{axis}
+\end{tikzpicture}
+\caption{Calibration sur le test 2018 (\num{53344} commandes, environ \num{5335} par décile).}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{@{}crrr@{}}
+\toprule
+Décile & Prédit & Observé & Écart \\
+\midrule
+1 & 3,4\,\% & 3,5\,\% & +0,1 pt \\
+2 & 4,4\,\% & 3,9\,\% & $-$0,5 pt \\
+3 & 5,1\,\% & 5,7\,\% & +0,6 pt \\
+4 & 5,7\,\% & 7,2\,\% & +1,5 pt \\
+5 & 6,3\,\% & 7,5\,\% & +1,2 pt \\
+6 & 6,9\,\% & 8,8\,\% & +1,9 pt \\
+7 & 7,5\,\% & 10,1\,\% & +2,7 pt \\
+8 & 8,2\,\% & 10,5\,\% & +2,3 pt \\
+9 & 9,3\,\% & 12,4\,\% & +3,1 pt \\
+10 & 13,1\,\% & 17,6\,\% & \textcolor{sinistre}{\textbf{+4,5 pt}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+L'ordre des déciles est respecté, mais \textbf{le modèle sous-estime le risque à partir du
+quatrième décile}, et d'autant plus que le risque est élevé. En moyenne, il prédit 7,0\,\% de
+retards quand 8,7\,\% se produisent. Le score de Brier (0,0783) n'améliore que de 1,5\,\% la
+référence sans modèle (0,0795).
+
+\subsection{Importance des variables}
+
+Importance par permutation, mesurée sur le test avec la ROC-AUC (baisse de la ROC-AUC quand on
+mélange la variable). Une variable importante est utilisée par le modèle ; ce n'est pas une
+cause du retard.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Variable & Importance & Écart-type \\
+\midrule
+\var{distance\_km} & 0,0446 & 0,0016 \\
+\var{delai\_promis\_jours} & 0,0440 & 0,0010 \\
+\var{meme\_etat} & 0,0340 & 0,0009 \\
+\var{frais\_port} & 0,0144 & 0,0009 \\
+\var{nb\_articles} & 0,0058 & 0,0004 \\
+\var{nb\_vendeurs} & 0,0026 & 0,0005 \\
+\var{type\_paiement} & 0,0024 & 0,0005 \\
+\var{prix\_total} & 0,0023 & 0,0004 \\
+\var{poids\_total\_g} & 0,0005 & 0,0011 \\
+\textcolor{sinistre}{\var{nb\_mensualites}} & \textcolor{sinistre}{$-$0,0009} & 0,0002 \\
+\textcolor{sinistre}{\var{volume\_total\_cm3}} & \textcolor{sinistre}{$-$0,0014} & 0,0010 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Trois variables géographiques (distance, délai promis, même État) portent l'essentiel du
+signal. \var{poids\_total\_g} a une importance inférieure à son écart-type, et deux variables
+ont une importance \textbf{négative} : les mélanger améliore la ROC-AUC sur 2018. Elles
+apportent du bruit appris sur 2017.
+
+\subsection{Équité par région}
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Région & Commandes & Part refusée & Taux de retard & Seuil de coût \\
+\midrule
+Sudeste & \num{37157} & 17,5\,\% & 7,9\,\% & 4,00\RS{} \\
+Sul & \num{7374} & 20,0\,\% & 7,2\,\% & 4,53\RS{} \\
+Centro-Oeste & \num{3147} & 20,0\,\% & 8,9\,\% & 5,40\RS{} \\
+Norte & 883 & 19,9\,\% & 14,0\,\% & 9,06\RS{} \\
+Nordeste & \num{4783} & 20,0\,\% & 16,5\,\% & 10,29\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le plafond est respecté partout. Il est atteint dans quatre régions sur cinq : seul le Sudeste
+reste sous la limite avec la règle de prix normale (seuil de 4\RS). Dans le Nordeste et le
+Norte, le seuil est relevé à environ 9 à 10\RS{} : on y propose une garantie à 4\RS{} à des
+commandes dont le coût attendu peut atteindre plus du double. C'est là que se concentre le
+coût de l'équité.
+
+\subsection{Profils de commandes}
+
+Une segmentation K-means (5 segments, apprise sur 2017) aide à lire les décisions.
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Segment & Part & Retard 2017 & Retard 2018 & Refusées 2018 \\
+\midrule
+Le voisin (même État) & 30,1\,\% & 4,6\,\% & 5,7\,\% & 2,5\,\% \\
+Le petit colis entre États & 36,8\,\% & 7,6\,\% & 11,7\,\% & 10,4\,\% \\
+Le grand voyageur (très longue distance) & 14,6\,\% & 6,9\,\% & 7,0\,\% & 11,9\,\% \\
+Le colis lourd & 16,3\,\% & 9,2\,\% & 10,8\,\% & 67,7\,\% \\
+Le gros panier (plusieurs articles) & 2,3\,\% & 4,7\,\% & 5,8\,\% & 70,9\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les colis lourds et les gros paniers sont refusés à près de 70\,\% alors que leur taux de
+retard n'est pas le plus élevé : ils sont refusés surtout parce que leurs frais de port, donc
+l'indemnité, sont élevés. À l'inverse, le « petit colis entre États » voit son taux de retard
+passer de 7,6\,\% à 11,7\,\% en 2018 mais n'est refusé qu'à 10\,\%.
+
+% ------------------------------------------------------------------ 5. Dérive
+\section{Dérive temporelle}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=6.2cm,
+  ybar, bar width=9pt,
+  ylabel={Taux de retard (\%)}, ymin=0, ymax=22,
+  symbolic x coords={01/17,02/17,03/17,04/17,05/17,06/17,07/17,08/17,09/17,10/17,11/17,12/17,
+                     01/18,02/18,03/18,04/18,05/18,06/18,07/18,08/18},
+  xtick={01/17,02/17,03/17,04/17,05/17,06/17,07/17,08/17,09/17,10/17,11/17,12/17,01/18,02/18,03/18,04/18,05/18,06/18,07/18,08/18}, x tick label style={rotate=60, anchor=east, font=\scriptsize},
+  tick label style={font=\small}, label style={font=\small},
+  ymajorgrids, grid style={gris!25},
+  enlarge x limits=0.03,
+  legend cell align=left, legend style={at={(0.02,0.97)}, anchor=north west, draw=none, font=\small},
+]
+\addplot[fill=encre!45, draw=none, bar shift=0pt, area legend] coordinates {
+  (01/17,5.0) (02/17,4.2) (03/17,6.2) (04/17,8.5) (05/17,4.5) (06/17,4.5) (07/17,4.2)
+  (08/17,3.8) (09/17,5.3) (10/17,4.9) (11/17,13.3) (12/17,8.4)};
+\addlegendentry{Entraînement (2017)}
+\addplot[fill=sinistre!75, draw=none, bar shift=0pt, area legend] coordinates {
+  (01/18,6.7) (02/18,14.9) (03/18,20.5) (04/18,5.9) (05/18,7.3) (06/18,1.9) (07/18,4.3) (08/18,6.9)};
+\addlegendentry{Test (2018)}
+\end{axis}
+\end{tikzpicture}
+\caption{Taux de retard mensuel, janvier 2017 à août 2018.}
+\end{figure}
+
+Le taux de retard n'est pas stable :
+\begin{itemize}
+  \item en 2017, il oscille entre 4 et 6\,\%, sauf en novembre (13,3\,\%), qui est aussi le mois
+        le plus chargé de l'année (\num{7360} commandes, contre environ \num{4200} les mois
+        précédents) ;
+  \item en 2018, \textbf{février (14,9\,\%) et mars (20,5\,\%)} sont des mois de crise, puis le
+        taux redescend jusqu'à 1,9\,\% en juin.
+\end{itemize}
+
+Le modèle, appris sur une année plutôt calme, ne peut pas anticiper ces épisodes : les
+variables connues au paiement ne disent rien de l'état du réseau de transport à venir. Cette
+dérive explique en grande partie la sous-estimation observée en calibration (7,0\,\% prédit
+contre 8,7\,\% observé).
+
+% ------------------------------------------------------------------ 6. Bilan
+\section{Bilan et pistes d'amélioration}
+
+\subsection{Forces}
+\begin{itemize}
+  \item Méthode d'évaluation rigoureuse : split temporel, test unique, contrôle au hasard.
+  \item Critère de choix aligné sur le métier (bénéfice de l'assureur).
+  \item Gain économique réel : \num{11049}\RS, soit $\times 2{,}1$ par rapport à la situation
+        actuelle.
+  \item Contrainte d'équité respectée et chiffrée (coût de \num{2279}\RS).
+  \item Code clair : tous les paramètres sont centralisés dans \var{backend/config.py}.
+\end{itemize}
+
+\subsection{Faiblesses}
+\begin{itemize}
+  \item Capacité de tri modeste (ROC-AUC 0,641).
+  \item Probabilités sous-estimées dans les déciles risqués, alors que la décision s'appuie
+        directement sur elles.
+  \item Deux variables à importance négative, une troisième sans effet mesurable.
+  \item Choix forêt contre logistique tranché sur un écart de 32\RS{} seulement.
+  \item Sensibilité forte à la dérive temporelle, sans mécanisme de suivi ni de réentraînement.
+\end{itemize}
+
+\subsection{Pistes à tester}
+
+Chaque piste sera évaluée de la même façon que le modèle actuel : choix sur la validation 2017,
+puis comparaison sur le test 2018 avec le bénéfice de l'assureur comme critère principal.
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}c X l@{}}
+\toprule
+Priorité & Piste & Effet attendu \\
+\midrule
+\textcolor{sinistre}{\textbf{1}} & Retirer \var{volume\_total\_cm3} et \var{nb\_mensualites} & moins de bruit \\
+\textcolor{sinistre}{\textbf{1}} & Calibrer les probabilités (\var{CalibratedClassifierCV}, isotonique ou sigmoïde) & coût attendu juste \\
+\textcolor{prudence}{\textbf{2}} & Tester \var{HistGradientBoostingClassifier} & meilleur tri \\
+\textcolor{prudence}{\textbf{2}} & Ajouter des variables construites (distance / délai promis, frais par kg) & meilleur tri \\
+\textcolor{correct}{\textbf{3}} & Revoir le choix forêt / logistique avec plusieurs fenêtres de validation & choix plus robuste \\
+\textcolor{correct}{\textbf{3}} & Suivre le taux de retard mensuel et prévoir un réentraînement régulier & résistance à la dérive \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Les deux pistes de priorité 1, ainsi que la comparaison forêt / logistique sur plusieurs
+fenêtres, ont été testées : la section suivante en rend compte.
+
+% ------------------------------------------------------------------ 7. Premiers essais
+\section{Premiers essais d'amélioration}
+
+\subsection{Protocole}
+
+Les essais sont jugés \textbf{uniquement sur 2017} ; le test 2018 n'a pas été relu. Pour ne
+pas dépendre d'une seule période, chaque variante est évaluée sur deux fenêtres de
+validation, en apprenant toujours sur le passé :
+
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Fenêtre & Apprentissage $\rightarrow$ validation & App. & Val. & Taux de retard \\
+\midrule
+F1 & janv.–juin 2017 $\rightarrow$ juil.–sept. 2017 & \num{14165} & \num{12350} & 4,4\,\% \\
+F2 & janv.–sept. 2017 $\rightarrow$ oct.–déc. 2017 & \num{26515} & \num{17441} & 9,5\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La calibration utilise \var{CalibratedClassifierCV} avec des plis temporels
+(\var{TimeSeriesSplit}, 3 plis) : chaque calibrateur est appris sur des commandes postérieures
+à celles qui ont servi au modèle. Les « 9 variables » sont les 11 variables actuelles sans
+\var{volume\_total\_cm3} ni \var{nb\_mensualites}.
+
+\subsection{Résultats}
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{ROC-AUC} & \multicolumn{2}{c}{Bénéfice} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+Variante & F1 & F2 & F1 & F2 \\
+\midrule
+A. Forêt, 11 variables (actuel) & 0,605 & 0,575 & \num{5711}\RS{} & \num{2750}\RS{} \\
+B. Forêt, 9 variables & 0,608 & 0,575 & \num{5710}\RS{} & \num{2729}\RS{} \\
+C. Forêt, 9 var. + isotonique & 0,587 & 0,571 & \num{5758}\RS{} & \num{2512}\RS{} \\
+D. Forêt, 9 var. + sigmoïde & 0,582 & 0,564 & \num{5779}\RS{} & \num{2448}\RS{} \\
+E. Logistique, 11 variables & \textbf{0,630} & \textbf{0,602} & \num{5756}\RS{} & \num{2710}\RS{} \\
+F. Logistique, 9 variables & \textbf{0,639} & \textbf{0,601} & \num{5714}\RS{} & \num{2706}\RS{} \\
+G. Logistique, 9 var. + isotonique & 0,640 & 0,595 & \num{5763}\RS{} & \num{2529}\RS{} \\
+\midrule
+Proposer à tous (sans modèle) & 0,500 & 0,500 & \num{5510}\RS{} & 797\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Lecture}
+
+\paragraph{Retirer les deux variables ne change rien.} Sur 2017, la ROC-AUC et le bénéfice
+sont identiques à quelques unités près. Leur importance négative avait été mesurée sur 2018 ;
+s'appuyer sur ce constat pour les retirer reviendrait à régler le modèle sur le test. On peut
+les retirer par souci de simplicité, pas pour un gain de performance.
+
+\paragraph{La calibration dégrade le résultat.} Elle fait perdre jusqu'à 300\RS{} sur F2 et
+abaisse la ROC-AUC. Le tableau suivant montre pourquoi :
+
+\begin{center}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Fenêtre & Proba. moyenne prédite & Taux observé & Lecture \\
+\midrule
+F1 (juil.–sept.) & 5,6\,\% & 4,4\,\% & le modèle surestime \\
+F2 (oct.–déc.) & 5,0\,\% & 9,5\,\% & le modèle sous-estime de moitié \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{encadre}[colframe=prudence, title=Conclusion principale]
+Les probabilités ne sont pas mal formées : c'est le \textbf{niveau général du risque qui change
+d'un trimestre à l'autre}, alors que le modèle prédit toujours à peu près le même niveau. Un
+calibrateur appris sur le passé ne peut pas deviner le niveau à venir. Le défaut de calibration
+observé en 2018 est un symptôme de la dérive temporelle, pas un problème de réglage.
+\end{encadre}
+
+\paragraph{La régression logistique trie mieux que la forêt.} Elle gagne 0,025 à 0,03 de
+ROC-AUC sur les deux fenêtres, pour un bénéfice équivalent. Le choix initial de la forêt,
+tranché sur 32\RS{} d'écart, ne tient pas.
+
+\paragraph{Le bénéfice départage mal les variantes.} Les écarts entre variantes (environ
+50\RS{}) relèvent du bruit : avec le plafond de 20\,\% de refus par région, la garantie est
+proposée à environ 90\,\% des commandes de validation, ce qui laisse peu de place pour
+distinguer les modèles. La ROC-AUC et la PR-AUC sont ici plus informatives.
+
+\subsection{Pistes révisées}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}c X l@{}}
+\toprule
+Priorité & Piste & Statut \\
+\midrule
+--- & Retirer \var{volume\_total\_cm3} et \var{nb\_mensualites} & neutre, simplification \\
+--- & Calibrer les probabilités & écarté \\
+\textcolor{sinistre}{\textbf{1}} & Ajouter le taux de retard récent du réseau (30 derniers jours, commandes déjà livrées à la date d'achat) & écarté (section 8) \\
+\textcolor{sinistre}{\textbf{1}} & Ajouter la marge du délai promis (délai promis moins délai habituel sur le même trajet, calculé sur le passé) & retenu (section 8) \\
+\textcolor{prudence}{\textbf{2}} & Comparer logistique, forêt et \var{HistGradientBoostingClassifier} avec ces variables & logistique retenue \\
+\textcolor{correct}{\textbf{3}} & Simuler un réentraînement mensuel sur 2018 & à tester \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+La variable de taux de retard récent vise directement la cause identifiée : elle donne au
+modèle le niveau de risque du moment, qu'il ne voit pas aujourd'hui. Elle exige une précaution
+contre la fuite d'information : seules les commandes déjà livrées à la date d'achat peuvent
+entrer dans son calcul.
+
+% ------------------------------------------------------------------ 8. Nouveau modèle
+\section{Nouveau modèle : les variables « trajet »}
+
+\subsection{Les variables}
+
+Pour chaque commande, on regarde les livraisons passées sur le même trajet (État du vendeur
+$\rightarrow$ État du client), telles qu'elles étaient connues \textbf{le 1\textsuperscript{er}
+jour du mois d'achat} :
+\begin{itemize}
+  \item \var{delai\_habituel\_trajet} : délai réel médian entre l'achat et la livraison, sur les
+        commandes déjà livrées (médiane globale si le trajet compte moins de 30 livraisons) ;
+  \item \var{marge\_delai\_jours} : délai promis au client moins ce délai habituel. Une marge
+        faible signifie qu'Olist promet moins que ce que le trajet prend d'habitude ;
+  \item \var{taux\_retard\_trajet} : taux de retard passé du trajet, sur les commandes dont la
+        date promise est passée, rapproché du taux global pour les trajets peu fréquentés.
+\end{itemize}
+
+Une quatrième variable a été testée puis écartée : le \textbf{taux de retard des 30 derniers
+jours}. L'issue d'une commande n'est connue qu'à sa date promise, environ trois à quatre
+semaines après l'achat : ce signal décrit donc la situation d'il y a un mois. Il indiquait
+4,8\,\% en novembre 2017 (13,3\,\% réels) et 20\,\% en avril 2018 (5,9\,\% réels), une fois la
+crise passée.
+
+Les deux variables neutres (\var{volume\_total\_cm3}, \var{nb\_mensualites}) ont été retirées :
+le modèle compte désormais \textbf{12 variables}. L'absence de fuite est vérifiée par des tests
+automatiques (\var{tests/test\_trajets.py}) et par un recalcul à la main sur plusieurs dates.
+
+\subsection{Choix du modèle sur la validation 2017}
+
+Le critère de choix a été fixé avant de regarder le test : la \textbf{ROC-AUC moyenne sur les
+deux fenêtres} F1 et F2. Le bénéfice est calculé mais ne départage pas les candidats (section 7).
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{ROC-AUC} & \multicolumn{2}{c}{Bénéfice} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+Candidat (12 variables) & F1 & F2 & F1 & F2 \\
+\midrule
+\textbf{Régression logistique (retenue)} & \textbf{0,647} & \textbf{0,642} & \num{5819}\RS{} & \num{2658}\RS{} \\
+Forêt, feuilles $\geq 100$ & 0,632 & 0,620 & \num{5615}\RS{} & \num{2795}\RS{} \\
+Gradient boosting & 0,599 & 0,628 & \num{5614}\RS{} & \num{2959}\RS{} \\
+\midrule
+\emph{Rappel : forêt actuelle (11 variables)} & 0,605 & 0,575 & \num{5711}\RS{} & \num{2750}\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La validation croisée temporelle sur 2017 donne \textbf{0,645 $\pm$ 0,027}, contre
+0,602 $\pm$ 0,016 pour le modèle actuel.
+
+\subsection{Résultats sur le test 2018}
+
+Le test a été regardé une fois, après le choix du modèle.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Indicateur (test 2018) & Modèle actuel & Nouveau modèle & Écart \\
+\midrule
+ROC-AUC & 0,641 & \textbf{0,673} & +0,032 \\
+PR-AUC (hasard : 0,087) & 0,144 & \textbf{0,150} & +0,006 \\
+Score de Brier & 0,0783 & \textbf{0,0776} & $-$0,0007 \\
+Probabilité moyenne prédite (réel : 8,7\,\%) & 7,0\,\% & 9,0\,\% & \\
+\midrule
+Bénéfice, plafond de 20\,\% par région & \num{11049}\RS{} & \textbf{12\,238\RS{}} & +\num{1189}\RS{} \\
+Ratio sinistres / primes & 0,68 & \textbf{0,64} & $-$0,04 \\
+Part des commandes à qui on propose & 81,8\,\% & 80,0\,\% & \\
+Bénéfice sans plafond & \num{13329}\RS{} & \num{14428}\RS{} & +\num{1099}\RS{} \\
+Coût de l'équité & \num{2279}\RS{} & \num{2189}\RS{} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Pour information, les deux autres candidats ont aussi été évalués sur le test, sans que ce
+résultat serve à changer de choix : forêt 0,648 de ROC-AUC et \num{10911}\RS{} ; gradient boosting
+0,629 et \num{10576}\RS{}. Le choix fait sur la validation est confirmé.
+
+\paragraph{Calibration.} Le modèle ne sous-estime plus le niveau du risque (9,0\,\% prédit pour
+8,7\,\% observé). Il surestime en revanche la tranche la plus risquée (22,0\,\% prédit contre
+17,6\,\% observé), ce qui rend l'assureur un peu trop prudent sur ces commandes.
+
+\paragraph{Importance des variables.} Les deux variables trajet les plus utiles arrivent en
+tête : \var{marge\_delai\_jours} (0,034) et \var{taux\_retard\_trajet} (0,032), devant le délai
+promis (0,023), le fait d'être dans le même État (0,022) et la distance (0,018).
+
+\subsection{Équité : un arbitrage à trancher}
+
+Le plafond est respecté : chaque région a 20\,\% de refus. Il est désormais atteint dans les
+cinq régions, Sudeste compris. Sans plafond, le nouveau modèle refuserait 93,5\,\% des commandes
+du Nordeste et 87,9\,\% de celles du Norte : il repère encore mieux la géographie que le modèle
+actuel.
+
+Surtout, à l'intérieur des régions, les refus se concentrent sur certains États :
+
+\begin{center}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Région & État & Commandes & Retard & Refus actuel & Refus nouveau \\
+\midrule
+Sudeste & Espírito Santo (ES) & \num{1054} & 14,3\,\% & 30,9\,\% & \textcolor{sinistre}{\textbf{65,6\,\%}} \\
+Sudeste & Rio de Janeiro (RJ) & \num{6504} & 15,9\,\% & 25,9\,\% & \textcolor{sinistre}{\textbf{58,5\,\%}} \\
+Sudeste & São Paulo (SP) & \num{23485} & 5,6\,\% & 12,5\,\% & 7,6\,\% \\
+Nordeste & Alagoas (AL) & 202 & 23,8\,\% & 20,3\,\% & \textcolor{sinistre}{\textbf{52,0\,\%}} \\
+Nordeste & Maranhão (MA) & 354 & 21,8\,\% & 34,7\,\% & 48,6\,\% \\
+Nordeste & Bahia (BA) & \num{1762} & 15,8\,\% & 9,1\,\% & 9,3\,\% \\
+Sul & Santa Catarina (SC) & \num{1892} & 9,2\,\% & 22,3\,\% & 35,8\,\% \\
+Sul & Paraná (PR) & \num{2724} & 5,2\,\% & 18,3\,\% & 9,8\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Parmi les États d'au moins 200 commandes, l'écart entre le taux de refus le plus haut et le
+plus bas passe de 30 à \textbf{58 points}. Les refus suivent mieux le risque réel (Rio de
+Janeiro et Espírito Santo ont des taux de retard deux à trois fois supérieurs à São Paulo),
+ce qui explique le gain de bénéfice. Mais l'État du client avait été exclu du modèle pour
+l'équité, et les variables trajet le réintroduisent indirectement.
+
+\begin{encadre}[colframe=prudence, title=Décision à prendre par l'équipe]
+\begin{itemize}[leftmargin=12pt]
+  \item \textbf{Garder le nouveau modèle tel quel} et documenter l'écart entre États :
+        +\num{1189}\RS{}, plafond par région respecté.
+  \item \textbf{Plafonner les refus par État} plutôt que par région : même règle, maille plus
+        fine ; le coût est à mesurer sur la validation.
+  \item \textbf{Calculer les variables trajet par région} (région du vendeur $\rightarrow$ région
+        du client) plutôt que par État : moins précis, moins discriminant entre États.
+\end{itemize}
+Les deux dernières options doivent être évaluées sur la validation 2017 avant toute nouvelle
+lecture du test.
+\end{encadre}
+
+% ------------------------------------------------------------------ 9. Choix d'équité
+\section{Choix d'équité : un plafond par État}
+
+\subsection{Options évaluées sur la validation 2017}
+
+Deux options ont été comparées au nouveau modèle sur les fenêtres F1 et F2, sans relire le test.
+L'écart de refus entre États est mesuré sur les États d'au moins 100 commandes.
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{ROC-AUC} & \multicolumn{2}{c}{Bénéfice} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+Variante & F1 & F2 & F1 & F2 \\
+\midrule
+Nouveau modèle, plafond par région & 0,647 & 0,642 & \num{5819}\RS{} & \num{2658}\RS{} \\
+\textbf{Option 2 : plafond par État} & 0,647 & 0,642 & \num{5743}\RS{} & \num{2633}\RS{} \\
+Option 3 : trajets entre régions & 0,641 & \textcolor{sinistre}{0,573} & \num{5732}\RS{} & \textcolor{sinistre}{\num{2315}\RS{}} \\
+Options 2 et 3 & 0,641 & 0,573 & \num{5746}\RS{} & \num{2179}\RS{} \\
+\midrule
+\emph{Forêt actuelle, plafond par État} & 0,607 & 0,574 & \num{5703}\RS{} & \num{2586}\RS{} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{L'option 3 est écartée.} Calculées entre régions, les variables trajet perdent
+        leur pouvoir de tri : sur F2, la ROC-AUC tombe à 0,573, sous la logistique sans variable
+        trajet (0,601).
+  \item \textbf{L'option 2 ne change pas le modèle}, seulement la règle de décision. Sur 2017,
+        elle coûte de 25 à 76\RS{} et ramène chaque État à 20\,\% de refus au plus (contre 31
+        à 32\,\% au maximum avec le plafond par région). Avec cette règle, le nouveau modèle reste
+        devant la forêt actuelle (\num{4188}\RS{} de bénéfice moyen contre \num{4145}\RS{}).
+\end{itemize}
+
+\subsection{Résultat sur le test 2018}
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Règle (nouveau modèle) & Proposée à & Bénéfice & S/P & Refus par État \\
+\midrule
+Sans plafond & 60,8\,\% & \num{14428}\RS{} & 0,44 & --- \\
+Plafond de 20\,\% par région & 80,0\,\% & \num{12238}\RS{} & 0,64 & 7,6 à 65,6\,\% \\
+\textbf{Plafond de 20\,\% par État (retenu)} & \textbf{83,9\,\%} & \textbf{9\,417\RS{}} & \textbf{0,74} & \textbf{11,2 à 20,0\,\%} \\
+\midrule
+Proposer à tous & 100,0\,\% & \num{5191}\RS{} & 0,88 & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{encadre}[colframe=prudence, title=Pourquoi l'écart avec la validation]
+Sur 2017, passer de la région à l'État coûtait moins de 80\RS{}. Sur 2018, il coûte
+\textbf{2\,821\RS{}}. En 2018, les retards ont fortement augmenté à Rio de Janeiro (15,9\,\%)
+et en Espírito Santo (14,3\,\%), contre 5,6\,\% à São Paulo : le gain du nouveau modèle venait
+surtout de refus concentrés sur ces États, ce que le plafond par État interdit. Avec la même
+règle, l'ancienne forêt aurait obtenu \num{10615}\RS{} sur 2018. Revenir à la forêt pour cette
+raison reviendrait à choisir le modèle sur le test : le choix reste celui de la validation.
+\end{encadre}
+
+\subsection{Bilan}
+
+\begin{itemize}
+  \item La règle est cohérente avec le principe d'équité du projet : l'État du client est exclu
+        des variables, et aucun État ne peut être refusé à plus de 20\,\%.
+  \item Le coût total de l'équité est de \textbf{5\,011\RS{}} sur 8 mois (\num{14428}
+        contre \num{9417}\RS{}). La garantie reste rentable : bénéfice multiplié par 1,8 et
+        ratio sinistres / primes de 0,74.
+  \item Le seuil de coût est fixé par État : 4,00\RS{} à São Paulo, de 4,7 à 9\RS{} dans le reste
+        du Sudeste, le Sul et le Centro-Oeste, de 7,5 à 16\RS{} dans le Norte et de 12,7 à
+        28,0\RS{} dans le Nordeste.
+  \item À suivre en production : la part de refus par État chaque mois, en particulier dans les
+        petits États où elle varie beaucoup.
+\end{itemize}
+
+\end{document}

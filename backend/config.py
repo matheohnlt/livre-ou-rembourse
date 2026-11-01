@@ -24,18 +24,32 @@ DATE_DEBUT_VALIDATION = "2017-10-01"  # choix du modèle : appris de janvier à 
 DATE_DEBUT_TEST = "2018-01-01"  # entraînement final : 2017 ; test (regardé une seule fois) : janvier à août 2018
 DATE_FIN = "2018-09-01"  # exclue
 
+# Choix du modèle sur DEUX fenêtres de validation internes à 2017 (on apprend toujours sur ce
+# qui précède la fenêtre). Une seule fenêtre de 3 mois ne suffit pas à départager les modèles.
+FENETRES_VALIDATION = (
+    ("2017-07-01", "2017-10-01"),  # appris de janvier à juin, jugé de juillet à septembre
+    (DATE_DEBUT_VALIDATION, DATE_DEBUT_TEST),  # appris de janvier à septembre, jugé d'octobre à décembre
+)
+
+# --- Variables « trajet » (backend/trajets.py) ------------------------------------------
+MIN_COMMANDES_TRAJET = 30  # en dessous, le délai habituel du trajet est remplacé par la médiane globale
+LISSAGE_TAUX_TRAJET = 50  # taux de retard d'un trajet rapproché du taux global, comme si 50 commandes de plus
+
 # --- Paramètres métier de la garantie (hypothèses de l'assureur, voir note de cadrage) ---
 PRIX_GARANTIE = 4.0  # R$ : prix unique de la garantie, le même pour toutes les commandes proposées
 BON_ACHAT = 15.0  # R$ offerts en cas de sinistre, en plus du remboursement des frais de port
 CHARGEMENT = 0.30  # marge et frais de l'assureur : on propose si coût attendu x 1,3 <= prix
-PART_REFUS_MAX_PAR_REGION = 0.20  # équité : au plus 20 % de refus dans chaque région
+# Équité : au plus 20 % de refus dans chaque ÉTAT du client. D'abord fixé par région, le plafond
+# est passé à l'État quand les variables trajet ont concentré les refus sur quelques États d'une
+# même région (jusqu'à 66 % en Espírito Santo). Voir docs/model_card.md.
+PART_REFUS_MAX_PAR_ETAT = 0.20
 
 # Part des clients qui achètent la garantie quand elle leur est proposée. HYPOTHÈSE : non
 # observable dans les données. Elle multiplie tous les bénéfices sans changer le classement
 # des stratégies ; le simulateur Streamlit permet de la faire varier.
 TAUX_SOUSCRIPTION = 0.20
 
-# Baseline « règle métier » : refuser les commandes au-delà de cette distance (même plafond par région).
+# Baseline « règle métier » : refuser les commandes au-delà de cette distance (même plafond par État).
 SEUIL_DISTANCE_REFUS_KM = 2000
 
 # Bonus non supervisé : nombre de segments du K-means (choix expliqué dans docs/model_card.md).

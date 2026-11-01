@@ -1,8 +1,11 @@
 """Entraînement complet : `python -m backend.train`.
 
 1. Reconstruit la base SQLite si elle n'existe pas.
-2. Choisit le modèle sur la VALIDATION (appris de janvier à septembre 2017, jugé d'octobre à
-   décembre 2017), avec la métrique métier : le bénéfice de l'assureur.
+2. Choisit le modèle sur DEUX fenêtres de validation internes à 2017 (juillet-septembre et
+   octobre-décembre), avec la ROC-AUC moyenne. Le bénéfice est calculé et affiché, mais il ne
+   départage pas les candidats : avec le plafond de 20 % de refus par État, la garantie est
+   proposée à environ 90 % des commandes de validation et les écarts de bénéfice entre modèles
+   (environ 100 R$) changent de sens d'une fenêtre à l'autre.
 3. Mesure la stabilité par validation croisée temporelle sur 2017.
 4. Réentraîne le modèle choisi sur tout 2017, puis l'évalue UNE SEULE FOIS sur 2018.
 5. Sauvegarde le modèle, les métriques et les prédictions du test dans models/.
@@ -20,41 +23,53 @@ from backend.config import (
     BASE,
     CHARGEMENT,
     DATE_DEBUT_TEST,
-    DATE_DEBUT_VALIDATION,
     DOSSIER_MODELES,
     FICHIER_METRIQUES,
     FICHIER_MODELE,
-    PART_REFUS_MAX_PAR_REGION,
+    FENETRES_VALIDATION,
+    PART_REFUS_MAX_PAR_ETAT,
     PRIX_GARANTIE,
     SEED,
     SEUIL_DISTANCE_REFUS_KM,
 )
 from backend.data import charger_archive_dans_sqlite, lire_derniers_avis, lire_table_analyse
+from backend.trajets import ajouter_variables_trajet
 
 FICHIER_PREDICTIONS = DOSSIER_MODELES / "predictions_test.csv"
+STRATEGIE_RECOMMANDEE = "modèle, plafond de refus par État (recommandé)"
 
 
-def decider_avec_modele(modele, table: pd.DataFrame, part_refus_max: float = PART_REFUS_MAX_PAR_REGION):
-    """Probabilité, coût attendu et décision (proposer ou non) pour chaque commande."""
+def decider_avec_modele(modele, table: pd.DataFrame, part_refus_max: float = PART_REFUS_MAX_PAR_ETAT):
+    """Probabilité, coût attendu et décision (proposer ou non) pour chaque commande.
+    Le plafond de refus s'applique dans chaque État du client."""
     proba = M.predire_probabilite(modele, table)
     cout = M.calculer_cout_attendu(proba, table["indemnite"], CHARGEMENT)
-    proposee = M.decider_eligibilite(cout, PRIX_GARANTIE, table["region_client"], part_refus_max)
+    proposee = M.decider_eligibilite(cout, PRIX_GARANTIE, table["etat_client"], part_refus_max)
     return proba, cout, proposee
 
 
 def choisir_modele(entrainement: pd.DataFrame) -> tuple[str, list]:
-    """Compare les candidats sur la validation interne à 2017. Le test n'est jamais regardé ici."""
-    apprentissage, validation = M.separer_periodes(entrainement, DATE_DEBUT_VALIDATION)
+    """Compare les candidats sur les fenêtres de validation internes à 2017. Le test n'est jamais
+    regardé ici. Critère : ROC-AUC moyenne sur les fenêtres (le bénéfice est seulement affiché).
+    """
     resultats = []
-    for nom in M.CANDIDATS:
-        modele = M.entrainer(nom, apprentissage)
-        proba, _, proposee = decider_avec_modele(modele, validation)
-        resultat = M.evaluer_strategie(proposee, validation[M.CIBLE], validation["indemnite"])
-        resultats.append({"modele": nom, "roc_auc": M.mesurer_classement(validation[M.CIBLE], proba)["roc_auc"],
-                          "benefice": resultat["benefice"]})
-    reference = M.evaluer_strategie(np.ones(len(validation), bool), validation[M.CIBLE], validation["indemnite"])
-    resultats.append({"modele": "proposer à tous (sans modèle)", "roc_auc": 0.5, "benefice": reference["benefice"]})
-    meilleur = max((r for r in resultats if r["modele"] in M.CANDIDATS), key=lambda r: r["benefice"])
+    for nom in [*M.CANDIDATS, "proposer à tous (sans modèle)"]:
+        roc_auc, benefice = [], []
+        for debut, fin in FENETRES_VALIDATION:
+            apprentissage = entrainement[entrainement["date_achat"] < pd.Timestamp(debut)]
+            validation = entrainement[(entrainement["date_achat"] >= pd.Timestamp(debut))
+                                      & (entrainement["date_achat"] < pd.Timestamp(fin))]
+            if nom in M.CANDIDATS:
+                modele = M.entrainer(nom, apprentissage)
+                proba, _, proposee = decider_avec_modele(modele, validation)
+                roc_auc.append(M.mesurer_classement(validation[M.CIBLE], proba)["roc_auc"])
+            else:
+                proposee = np.ones(len(validation), bool)
+                roc_auc.append(0.5)
+            benefice.append(M.evaluer_strategie(proposee, validation[M.CIBLE], validation["indemnite"])["benefice"])
+        resultats.append({"modele": nom, "roc_auc": float(np.mean(roc_auc)), "benefice": float(np.mean(benefice)),
+                          "roc_auc_par_fenetre": roc_auc, "benefice_par_fenetre": benefice})
+    meilleur = max((r for r in resultats if r["modele"] in M.CANDIDATS), key=lambda r: r["roc_auc"])
     return meilleur["modele"], resultats
 
 
@@ -71,9 +86,10 @@ def valider_dans_le_temps(nom: str, entrainement: pd.DataFrame, nb_plis: int = 4
 
 def comparer_strategies(test: pd.DataFrame, proposee_modele, distance_mediane: float) -> dict:
     """Bénéfice sur le test de chaque stratégie, avec la même hypothèse de souscription."""
-    sinistre, indemnite, region = test[M.CIBLE], test["indemnite"], test["region_client"]
+    sinistre, indemnite, etat = test[M.CIBLE], test["indemnite"], test["etat_client"]
     distance = test["distance_km"].fillna(distance_mediane)
-    proposee_regle = M.decider_eligibilite(distance, SEUIL_DISTANCE_REFUS_KM, region)
+    proposee_regle = M.decider_eligibilite(distance, SEUIL_DISTANCE_REFUS_KM, etat)
+    cout = M.calculer_cout_attendu(test["proba"], indemnite)
     # Contrôle : refuser AU HASARD autant de commandes que le modèle. Si le modèle ne faisait
     # pas mieux que ce contrôle, il ne servirait à rien.
     generateur = np.random.default_rng(SEED)
@@ -82,10 +98,12 @@ def comparer_strategies(test: pd.DataFrame, proposee_modele, distance_mediane: f
         "proposer à tous (situation actuelle)": M.evaluer_strategie(np.ones(len(test), bool), sinistre, indemnite),
         f"règle : refuser au-delà de {SEUIL_DISTANCE_REFUS_KM} km": M.evaluer_strategie(proposee_regle, sinistre, indemnite),
         "contrôle : refus au hasard (même nombre)": M.evaluer_strategie(proposee_hasard, sinistre, indemnite),
-        "modèle, sans plafond par région": M.evaluer_strategie(
-            M.decider_eligibilite(M.calculer_cout_attendu(test["proba"], indemnite), PRIX_GARANTIE, region, 1.0),
-            sinistre, indemnite),
-        "modèle, plafond de refus par région (recommandé)": M.evaluer_strategie(proposee_modele, sinistre, indemnite),
+        "modèle, sans plafond": M.evaluer_strategie(
+            M.decider_eligibilite(cout, PRIX_GARANTIE, etat, 1.0), sinistre, indemnite),
+        # Ancienne règle, gardée pour comparaison : 20 % de refus par région, sans limite par État.
+        "modèle, plafond de refus par région": M.evaluer_strategie(
+            M.decider_eligibilite(cout, PRIX_GARANTIE, test["region_client"]), sinistre, indemnite),
+        STRATEGIE_RECOMMANDEE: M.evaluer_strategie(proposee_modele, sinistre, indemnite),
     }
 
 
@@ -115,7 +133,7 @@ def entrainer_et_evaluer() -> dict:
     """Enchaîne toutes les étapes et renvoie les métriques (aussi sauvegardées en JSON)."""
     if not BASE.exists():
         charger_archive_dans_sqlite()
-    table = M.preparer_variables(lire_table_analyse())
+    table = ajouter_variables_trajet(M.preparer_variables(lire_table_analyse()))
     entrainement, test = M.separer_periodes(table, DATE_DEBUT_TEST)
 
     nom, selection = choisir_modele(entrainement)
@@ -146,11 +164,13 @@ def entrainer_et_evaluer() -> dict:
             "strategies": comparer_strategies(test, test["proposee"], entrainement["distance_km"].median()),
             "calibration": M.tableau_calibration(test[M.CIBLE], test["proba"]).to_dict(orient="records"),
             "equite": M.tableau_equite(test["region_client"], test["proposee"], test[M.CIBLE]).to_dict(orient="records"),
+            "equite_par_etat": M.tableau_equite(test["etat_client"], test["proposee"], test[M.CIBLE], nom="etat")
+                               .to_dict(orient="records"),
             "importance": M.calculer_importance(modele, test).to_dict(orient="records"),
         },
         "decision": {
-            # Seuil de coût par région (règle d'éligibilité appliquée commande par commande dans l'appli).
-            "seuils_par_region": M.calculer_seuils_par_region(test["cout_attendu"], test["region_client"]),
+            # Seuil de coût par État (règle d'éligibilité appliquée commande par commande dans l'appli).
+            "seuils_par_etat": M.calculer_seuils_par_groupe(test["cout_attendu"], test["etat_client"]),
         },
         "exploration": explorer(table),
         "segments": {
@@ -158,7 +178,7 @@ def entrainer_et_evaluer() -> dict:
             "portrait": portrait.to_dict(orient="records"),
         },
         "parametres": {"prix_garantie": PRIX_GARANTIE, "chargement": CHARGEMENT,
-                       "part_refus_max_par_region": PART_REFUS_MAX_PAR_REGION},
+                       "part_refus_max_par_etat": PART_REFUS_MAX_PAR_ETAT},
     }
 
     DOSSIER_MODELES.mkdir(parents=True, exist_ok=True)
@@ -173,9 +193,9 @@ def entrainer_et_evaluer() -> dict:
 
 def afficher_resume(metriques: dict) -> None:
     """Résumé lisible dans le terminal."""
-    print(f"Modèle retenu (sur la validation 2017) : {metriques['modele_retenu']}")
+    print(f"Modèle retenu (ROC-AUC moyenne sur 2 fenêtres de validation 2017) : {metriques['modele_retenu']}")
     for ligne in metriques["selection_sur_validation"]:
-        print(f"  {ligne['modele']:32} ROC-AUC {ligne['roc_auc']:.3f}  bénéfice validation {ligne['benefice']:9,.0f} R$")
+        print(f"  {ligne['modele']:32} ROC-AUC {ligne['roc_auc']:.3f}  bénéfice validation (moyenne) {ligne['benefice']:9,.0f} R$")
     stabilite = metriques["validation_croisee_temporelle_2017"]
     print(f"Validation croisée temporelle 2017 : ROC-AUC {stabilite['roc_auc_moyenne']:.3f} ± {stabilite['roc_auc_ecart_type']:.3f}")
     classement = metriques["test"]["classement"]

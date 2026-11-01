@@ -40,10 +40,12 @@ def _modifier(commande: dict) -> dict:
     commande["poids_total_g"] = 1000 * st.slider("Poids total (kg)", 0.0, 40.0, float(round(poids_kg, 1)), step=0.1)
     commande["nb_articles"] = st.slider("Nombre d'articles", 1, 10, int(_borner(commande["nb_articles"], 1, 10, 1)))
     commande["meme_etat"] = int(st.checkbox("Vendeur et client dans le même État", value=bool(commande["meme_etat"])))
-    regions = service.lister_regions()
-    region = commande["region_client"] if commande["region_client"] in regions else "Sudeste"
-    commande["region_client"] = st.selectbox("Région du client (pour la règle d'équité seulement)", regions,
-                                             index=regions.index(region))
+    etats = service.lister_etats()
+    etat = commande.get("etat_client") if commande.get("etat_client") in etats else "SP"
+    commande["etat_client"] = st.selectbox("État du client (pour la règle d'équité seulement)", etats,
+                                           index=etats.index(etat),
+                                           format_func=lambda e: f"{e} ({service.region_de_l_etat(e)})")
+    commande["region_client"] = service.region_de_l_etat(commande["etat_client"])
     types = service.lister_types_paiement()
     commande["type_paiement"] = st.selectbox("Mode de paiement", types, index=types.index(commande["type_paiement"]))
     return commande
@@ -59,8 +61,8 @@ def _afficher_resultat(commande: dict, devis: dict) -> None:
         st.success(f"✅ Garantie proposée à {devis['prix']:.0f} R$ : {devis['raison']}.")
     else:
         st.error(f"❌ Garantie non proposée : {devis['raison']}.")
-    st.caption(f"Règle : on propose si le coût attendu ≤ {devis['seuil_region']:.2f} R$, seuil de la région "
-               f"{commande['region_client']} (le prix de {devis['prix']:.0f} R$, relevé si la région dépasserait "
+    st.caption(f"Règle : on propose si le coût attendu ≤ {devis['seuil_etat']:.2f} R$, seuil de l'État "
+               f"{commande['etat_client']} (le prix de {devis['prix']:.0f} R$, relevé si l'État dépasserait "
                "20 % de refus).")
     if commande.get("issue_reelle"):
         st.info(f"Ce qui s'est réellement passé : commande **{commande['issue_reelle']}**. "

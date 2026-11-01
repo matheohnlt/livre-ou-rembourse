@@ -16,12 +16,12 @@ def afficher() -> None:
     col4, col5 = st.columns(2)
     souscription = col4.slider("Part des clients qui achètent la garantie (hypothèse)", 0.05, 0.6,
                                defaut["taux_souscription"], step=0.05)
-    plafond = col5.slider("Refus maximum par région (équité)", 0.05, 1.0, defaut["part_refus_max"], step=0.05)
+    plafond = col5.slider("Refus maximum par État (équité)", 0.05, 1.0, defaut["part_refus_max"], step=0.05)
 
     resultat = service.simuler(prix, bon_achat, chargement, plafond, souscription)
     strategies = resultat["strategies"].set_index("strategie")
     sans_modele = strategies.loc["Proposer à tous (sans modèle)"]
-    recommande = strategies.loc["Modèle, avec plafond par région"]
+    recommande = strategies.loc["Modèle, plafond par État (recommandé)"]
 
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Bénéfice avec le modèle (8 mois)", f"{recommande['benefice']:,.0f} R$".replace(",", " "),

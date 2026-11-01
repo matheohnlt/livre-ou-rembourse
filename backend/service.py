@@ -17,13 +17,14 @@ from backend.config import (
     CHARGEMENT,
     FICHIER_METRIQUES,
     FICHIER_MODELE,
-    PART_REFUS_MAX_PAR_REGION,
+    PART_REFUS_MAX_PAR_ETAT,
     PRIX_GARANTIE,
     REGIONS,
     SEED,
     TAUX_SOUSCRIPTION,
 )
-from backend.train import FICHIER_PREDICTIONS
+from backend.train import FICHIER_PREDICTIONS, STRATEGIE_RECOMMANDEE
+from backend.trajets import calculer_marge
 
 MESSAGE_MODELE_ABSENT = "Modèle absent. Lancer d'abord : python -m backend.train"
 
@@ -64,7 +65,7 @@ def parametres_par_defaut() -> dict:
         "prix": PRIX_GARANTIE,
         "bon_achat": BON_ACHAT,
         "chargement": CHARGEMENT,
-        "part_refus_max": PART_REFUS_MAX_PAR_REGION,
+        "part_refus_max": PART_REFUS_MAX_PAR_ETAT,
         "taux_souscription": TAUX_SOUSCRIPTION,
     }
 
@@ -110,6 +111,7 @@ def commande_type() -> dict:
     caracteristiques.update({
         "meme_etat": 0,
         "type_paiement": "credit_card",
+        "etat_client": "SP",
         "region_client": "Sudeste",
         "issue_reelle": None,
         "segment": None,
@@ -117,15 +119,27 @@ def commande_type() -> dict:
     return caracteristiques
 
 
-def seuils_par_region() -> pd.DataFrame:
-    """Seuil de coût attendu au-delà duquel la garantie est refusée, par région."""
-    seuils = metriques()["decision"]["seuils_par_region"]
-    return pd.DataFrame({"region": list(seuils), "seuil": list(seuils.values())})
+def seuils_par_etat() -> pd.DataFrame:
+    """Seuil de coût attendu au-delà duquel la garantie est refusée, par État du client."""
+    seuils = metriques()["decision"]["seuils_par_etat"]
+    tableau = pd.DataFrame({"etat": list(seuils), "seuil": list(seuils.values())})
+    tableau.insert(1, "region", tableau["etat"].map(region_de_l_etat))
+    return tableau.sort_values(["region", "etat"]).reset_index(drop=True)
 
 
 def lister_regions() -> list:
     """Les régions du Brésil, dans l'ordre de config.py."""
     return list(REGIONS)
+
+
+def lister_etats() -> list:
+    """Les 27 États du Brésil, classés par région puis par sigle."""
+    return [etat for etats in REGIONS.values() for etat in sorted(etats)]
+
+
+def region_de_l_etat(etat: str) -> str:
+    """La région d'un État (« inconnue » si le sigle n'existe pas)."""
+    return next((region for region, etats in REGIONS.items() if etat in etats), "inconnue")
 
 
 def lister_types_paiement() -> list:
@@ -136,9 +150,14 @@ def lister_types_paiement() -> list:
 def calculer_devis(caracteristiques: dict) -> dict:
     """Probabilité de sinistre, coût attendu et décision pour UNE commande.
 
-    La décision applique le seuil de coût de la région du client (règle d'éligibilité avec le
-    plafond de refus par région, voir backend/model.py).
+    La décision applique le seuil de coût de l'État du client (règle d'éligibilité avec le
+    plafond de refus par État, voir backend/model.py).
     """
+    caracteristiques = dict(caracteristiques)
+    if {"delai_promis_jours", "delai_habituel_trajet"} <= set(caracteristiques):
+        # La marge suit le délai promis saisi à l'écran : on la recalcule à chaque devis.
+        caracteristiques["marge_delai_jours"] = float(calculer_marge(
+            caracteristiques["delai_promis_jours"], caracteristiques["delai_habituel_trajet"]))
     manquantes = set(M.VARIABLES) - set(caracteristiques)
     if manquantes:
         raise ValueError(f"Variables manquantes : {sorted(manquantes)}")
@@ -146,12 +165,12 @@ def calculer_devis(caracteristiques: dict) -> dict:
     proba = float(M.predire_probabilite(_artefacts()["modele"], ligne)[0])
     indemnite = float(caracteristiques["frais_port"]) + BON_ACHAT
     cout_attendu = float(M.calculer_cout_attendu(proba, indemnite))
-    seuil = metriques()["decision"]["seuils_par_region"].get(caracteristiques.get("region_client"), PRIX_GARANTIE)
+    seuil = metriques()["decision"]["seuils_par_etat"].get(caracteristiques.get("etat_client"), PRIX_GARANTIE)
     proposee = cout_attendu <= seuil
     if cout_attendu <= PRIX_GARANTIE:
         raison = "rentable : le coût attendu est couvert par le prix"
     elif proposee:
-        raison = "non rentable, mais proposée grâce à la règle d'équité de sa région"
+        raison = "non rentable, mais proposée grâce à la règle d'équité de son État"
     else:
         raison = "refusée : coût attendu trop élevé, même avec la règle d'équité"
     return {
@@ -159,7 +178,7 @@ def calculer_devis(caracteristiques: dict) -> dict:
         "indemnite": indemnite,
         "cout_attendu": cout_attendu,
         "prix": PRIX_GARANTIE,
-        "seuil_region": float(seuil),
+        "seuil_etat": float(seuil),
         "proposee": bool(proposee),
         "raison": raison,
     }
@@ -168,15 +187,16 @@ def calculer_devis(caracteristiques: dict) -> dict:
 # --- Écrans Simulateur et Équité --------------------------------------------------------------
 
 def simuler(prix: float = PRIX_GARANTIE, bon_achat: float = BON_ACHAT, chargement: float = CHARGEMENT,
-            part_refus_max: float = PART_REFUS_MAX_PAR_REGION, taux_souscription: float = TAUX_SOUSCRIPTION) -> dict:
+            part_refus_max: float = PART_REFUS_MAX_PAR_ETAT, taux_souscription: float = TAUX_SOUSCRIPTION) -> dict:
     """Rejoue la décision sur les 53 344 commandes du test 2018 avec d'autres hypothèses.
     Les probabilités du modèle ne changent pas ; seuls l'indemnité, le seuil et la règle changent.
     """
     test = _predictions_test()
     indemnite = test["frais_port"] + bon_achat
     cout_attendu = M.calculer_cout_attendu(test["proba"], indemnite, chargement)
-    sans_plafond = M.decider_eligibilite(cout_attendu, prix, test["region_client"], 1.0)
-    avec_plafond = M.decider_eligibilite(cout_attendu, prix, test["region_client"], part_refus_max)
+    sans_plafond = M.decider_eligibilite(cout_attendu, prix, test["etat_client"], 1.0)
+    par_region = M.decider_eligibilite(cout_attendu, prix, test["region_client"], part_refus_max)
+    par_etat = M.decider_eligibilite(cout_attendu, prix, test["etat_client"], part_refus_max)
     tous = np.ones(len(test), dtype=bool)
 
     def evaluer(proposee):
@@ -184,15 +204,23 @@ def simuler(prix: float = PRIX_GARANTIE, bon_achat: float = BON_ACHAT, chargemen
 
     strategies = pd.DataFrame([
         {"strategie": "Proposer à tous (sans modèle)", **evaluer(tous)},
-        {"strategie": "Modèle, sans plafond par région", **evaluer(sans_plafond)},
-        {"strategie": "Modèle, avec plafond par région", **evaluer(avec_plafond)},
+        {"strategie": "Modèle, sans plafond", **evaluer(sans_plafond)},
+        {"strategie": "Modèle, plafond par région", **evaluer(par_region)},
+        {"strategie": "Modèle, plafond par État (recommandé)", **evaluer(par_etat)},
     ])
-    equite = M.tableau_equite(test["region_client"], avec_plafond, test[M.CIBLE]).merge(
-        M.tableau_equite(test["region_client"], sans_plafond, test[M.CIBLE])[["region", "part_refusee"]],
-        on="region", suffixes=("", "_sans_plafond"),
-    )
-    return {"strategies": strategies, "equite": equite,
-            "cout_equite": float(strategies.loc[1, "benefice"] - strategies.loc[2, "benefice"])}
+
+    def equite(groupe, nom):
+        avec = M.tableau_equite(test[groupe], par_etat, test[M.CIBLE], nom=nom)
+        sans = M.tableau_equite(test[groupe], sans_plafond, test[M.CIBLE], nom=nom)[[nom, "part_refusee"]]
+        regle_region = M.tableau_equite(test[groupe], par_region, test[M.CIBLE], nom=nom)[[nom, "part_refusee"]]
+        return (avec.merge(sans, on=nom, suffixes=("", "_sans_plafond"))
+                .merge(regle_region, on=nom, suffixes=("", "_plafond_region")))
+
+    par_etat_tableau = equite("etat_client", "etat")
+    par_etat_tableau.insert(1, "region", par_etat_tableau["etat"].map(region_de_l_etat))
+    return {"strategies": strategies, "equite": equite("region_client", "region"),
+            "equite_par_etat": par_etat_tableau.sort_values(["region", "etat"]).reset_index(drop=True),
+            "cout_equite": float(strategies.loc[1, "benefice"] - strategies.loc[3, "benefice"])}
 
 
 # --- Écran Exploration --------------------------------------------------------------------
@@ -232,7 +260,7 @@ def resume_modele() -> dict:
     strategies = pd.DataFrame([{"strategie": nom, **valeurs} for nom, valeurs in m["test"]["strategies"].items()])
     return {
         "modele_retenu": m["modele_retenu"],
-        "selection": pd.DataFrame(m["selection_sur_validation"]),
+        "selection": pd.DataFrame(m["selection_sur_validation"])[["modele", "roc_auc", "benefice"]],
         "validation_croisee": m["validation_croisee_temporelle_2017"],
         "periode_test": m["test"]["periode"],
         "commandes_test": m["test"]["commandes"],

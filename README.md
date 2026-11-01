@@ -13,15 +13,16 @@ Hypothèse : 20 % des clients achètent la garantie quand elle leur est proposé
 | Stratégie | Garantie proposée à | Bénéfice | Sinistres / primes |
 |---|---|---|---|
 | Proposer à tous (situation sans modèle) | 100 % | 5 191 R$ | 0,88 |
-| Règle simple : refuser au-delà de 2 000 km | 97 % | 6 721 R$ | 0,84 |
-| Contrôle : refuser au hasard autant que le modèle | 82 % | 4 578 R$ | 0,87 |
-| Modèle sans règle d'équité | 73 % | 13 329 R$ | 0,57 |
-| **Modèle + au plus 20 % de refus par région (recommandé)** | **82 %** | **11 049 R$** | **0,68** |
+| Règle simple : refuser au-delà de 2 000 km | 98 % | 6 209 R$ | 0,85 |
+| Contrôle : refuser au hasard autant que le modèle | 84 % | 4 295 R$ | 0,88 |
+| Modèle sans règle d'équité | 61 % | 14 428 R$ | 0,44 |
+| Modèle + au plus 20 % de refus par région (ancienne règle) | 80 % | 12 238 R$ | 0,64 |
+| **Modèle + au plus 20 % de refus par État (recommandé)** | **84 %** | **9 417 R$** | **0,74** |
 
-- **Le bénéfice est multiplié par 2,1.** Le gain vient bien du modèle : refuser au hasard le même nombre de commandes ne rapporte rien.
-- **L'équité coûte 2 280 R$.** Sans la règle, 83 % des commandes du Nordeste et du Norte seraient refusées.
-- **Modèle :** forêt aléatoire choisie sur une validation 2017. ROC-AUC de 0,64 sur le test, de 0,60 ± 0,02 en validation croisée temporelle ; PR-AUC de 0,144 contre 0,087 au hasard.
-- **Variables les plus utilisées :** la distance, le délai promis et le fait d'être dans le même État (importance par permutation).
+- **Le bénéfice est multiplié par 1,8.** Le gain vient bien du modèle : refuser au hasard le même nombre de commandes ne rapporte rien.
+- **L'équité coûte 5 011 R$.** Sans la règle, 94 % des commandes du Nordeste et 88 % de celles du Norte seraient refusées. Un plafond par région ne suffit pas : il laisserait refuser 66 % des commandes d'Espírito Santo et 58 % de celles de Rio de Janeiro. Avec le plafond par État, chaque État a au plus 20 % de refus.
+- **Modèle :** régression logistique avec 12 variables, choisie sur deux validations 2017 (ROC-AUC moyenne). ROC-AUC de 0,67 sur le test, de 0,64 ± 0,03 en validation croisée temporelle ; PR-AUC de 0,150 contre 0,087 au hasard.
+- **Variables les plus utilisées :** la marge du délai promis (délai promis moins délai habituel du trajet), le taux de retard passé du trajet, le délai promis et le fait d'être dans le même État (importance par permutation).
 - **5 profils de commandes (K-means, bonus) :** le plus risqué en 2018 est le « petit colis entre États » (11,7 % de retards), pas le « grand voyageur » (7,0 %), à qui Olist promet déjà un long délai.
 - **63 % des commandes en retard reçoivent un avis de 1 ou 2 étoiles, contre 9 % des autres :** la garantie répond à un vrai besoin.
 
@@ -32,9 +33,11 @@ Dans un environnement virtuel Python 3.12 (`python -m venv .venv`, puis `.venv\S
 ```bash
 pip install -r requirements.txt
 python -m backend.train                  # archive -> SQLite (SQL) -> choix du modèle -> test 2018 (environ 1 min)
-python -m pytest                         # 18 tests
+python -m pytest                         # 23 tests
 python -m streamlit run frontend/app.py  # démonstrateur, 5 écrans
 ```
+
+**Première installation, pas à pas** (récupérer la branche, créer l'environnement, résoudre les erreurs fréquentes) : voir le [guide d'installation](docs/installation.md).
 
 **Données :** l'archive Kaggle d'origine est versionnée telle quelle dans `data/raw/olist.zip` (45 Mo, jamais modifiée). Elle est lue directement, sans décompression ni clé Kaggle.
 
@@ -68,15 +71,16 @@ data/raw/olist.zip             données brutes
 | 🛒 Devis | Service client, démo | Une commande → risque de retard, coût attendu, garantie proposée ou non, et pourquoi |
 | 💰 Simulateur | DAF | Bénéfice et ratio sinistres / primes selon le prix, le bon, la marge, la souscription et le plafond |
 | 🗺️ Exploration | Marketing | Retards et mauvais avis, évolution mensuelle, carte par État, 5 personas |
-| ⚖️ Équité | DPO | Refus par région avec et sans la règle, coût de l'équité, seuils par région |
+| ⚖️ Équité | DPO | Refus par région et par État avec et sans la règle, coût de l'équité, seuils par État |
 | 🧠 Le modèle | DSI, jury | Choix du modèle, performances, calibration, variables importantes, limites |
 
 ## Limites
 
 - **Hypothèse non observable :** la part de clients qui achèteraient la garantie (20 %), et le fait qu'elle soit la même quel que soit le risque du client.
-- **Le modèle sous-estime le niveau du risque en 2018** (7,0 % prédit contre 8,7 % observé), car les retards ont augmenté. Il classe pourtant bien : de 3,5 % à 17,6 % de retards entre la tranche la plus sûre et la plus risquée.
+- **Le modèle surestime le risque des commandes les plus risquées** (22 % prédit contre 17,6 % observé dans la tranche la plus risquée) ; en moyenne, il prédit 9,0 % de retards pour 8,7 % observés. Il classe bien : de 2,1 % à 17,6 % de retards entre la tranche la plus sûre et la plus risquée.
+- **Les variables « trajet » renseignent indirectement sur l'État du client.** C'est pourquoi la règle d'équité plafonne les refus dans chaque État, et pas seulement dans chaque région.
 - **Il ne prévoit pas les crises :** en février-mars 2018, les retards ont triplé. D'où le suivi mensuel et la règle de réentraînement (voir `docs/model_card.md`).
-- **Une ROC-AUC de 0,64 reste modeste :** les causes des retards (grèves, transporteur, météo) ne sont pas dans les données.
+- **Une ROC-AUC de 0,67 reste modeste :** les causes des retards (grèves, transporteur, météo) ne sont pas dans les données.
 - **Les données datent de 2017-2018** et forment un échantillon public d'Olist.
 
 ## Retours du COMEX et ce que nous avons changé
@@ -89,4 +93,4 @@ data/raw/olist.zip             données brutes
 
 ## Documents
 
-[Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)
+[Guide d'installation](docs/installation.md) · [Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)

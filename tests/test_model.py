@@ -14,7 +14,7 @@ def test_cout_attendu_avec_la_marge():
 
 def test_on_refuse_seulement_quand_le_cout_depasse_le_prix():
     cout = np.array([1.0, 3.9, 4.0, 4.1, 9.0])
-    proposee = M.decider_eligibilite(cout, seuil=4.0, region=["A"] * 5, part_refus_max=1.0)
+    proposee = M.decider_eligibilite(cout, seuil=4.0, groupe=["A"] * 5, part_refus_max=1.0)
     assert proposee.tolist() == [True, True, True, False, False]
 
 
@@ -22,7 +22,7 @@ def test_le_plafond_de_refus_par_region_est_respecte():
     # Région A : 10 commandes, toutes non rentables. Avec 20 % de refus au plus, on n'en refuse
     # que 2, et ce sont les PLUS risquées (coûts 10 et 9).
     cout = np.arange(1.0, 11.0) + 4.0  # de 5 à 14 R$, toutes au-dessus du prix de 4 R$
-    proposee = M.decider_eligibilite(cout, seuil=4.0, region=["A"] * 10, part_refus_max=0.20)
+    proposee = M.decider_eligibilite(cout, seuil=4.0, groupe=["A"] * 10, part_refus_max=0.20)
     assert (~proposee).sum() == 2
     assert set(cout[~proposee]) == {13.0, 14.0}
 
@@ -30,7 +30,7 @@ def test_le_plafond_de_refus_par_region_est_respecte():
 def test_le_plafond_ne_touche_pas_une_region_sous_le_plafond():
     cout = np.array([1.0, 1.0, 1.0, 1.0, 9.0, 9.0])
     region = ["A", "A", "A", "A", "A", "B"]
-    proposee = M.decider_eligibilite(cout, seuil=4.0, region=region, part_refus_max=0.20)
+    proposee = M.decider_eligibilite(cout, seuil=4.0, groupe=region, part_refus_max=0.20)
     # A : 1 refus sur 5 (20 %) -> gardé. B : 1 refus sur 1 (100 %) -> re-proposé.
     assert proposee.tolist() == [True, True, True, True, False, True]
 

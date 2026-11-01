@@ -5,19 +5,21 @@ from backend import service
 
 NOMS_LISIBLES = {
     "logistique": "Régression logistique",
-    "foret_50": "Forêt aléatoire (50 commandes par feuille)",
     "foret_100": "Forêt aléatoire (100 commandes par feuille)",
-    "foret_200": "Forêt aléatoire (200 commandes par feuille)",
+    "boosting": "Gradient boosting (HistGradientBoosting)",
 }
 
 LIMITES = [
-    "**Le modèle classe bien, mais il sous-estime le niveau du risque en 2018** (7 % prédit contre 8,7 % observé) : "
-    "la marge de 30 % absorbe une partie de cet écart.",
     "**Il ne prévoit pas les crises** : en février-mars 2018, les retards ont triplé. Il faut surveiller le taux "
     "de retard chaque mois et réentraîner le modèle.",
+    "**Il surestime le risque des commandes les plus risquées** (22 % prédit contre 17,6 % observé pour la tranche "
+    "la plus risquée) : en moyenne, il prédit 9,0 % de retards pour 8,7 % observés.",
+    "**Les variables « trajet » renseignent indirectement sur l'État du client** : sans précaution, les refus se "
+    "concentreraient sur quelques États (jusqu'à 66 % en Espírito Santo). C'est pourquoi le plafond de 20 % de "
+    "refus s'applique à chaque État.",
     "**La part de clients qui achètent la garantie (20 %) est une hypothèse** : elle change les montants, pas le "
     "classement des stratégies.",
-    "**Une ROC-AUC de 0,64 est modeste** : un retard dépend aussi de ce que les données ne voient pas "
+    "**Une ROC-AUC de 0,67 reste modeste** : un retard dépend aussi de ce que les données ne voient pas "
     "(grèves, transporteur, météo).",
     "**Données de 2017-2018** : à réentraîner sur des données récentes avant tout usage réel.",
 ]
@@ -26,8 +28,9 @@ LIMITES = [
 def afficher() -> None:
     resume = service.resume_modele()
     st.subheader(f"Le modèle retenu : {NOMS_LISIBLES.get(resume['modele_retenu'], resume['modele_retenu'])}")
-    st.caption("Choisi sur une validation interne à 2017 (appris de janvier à septembre, jugé d'octobre à décembre) "
-               "avec le bénéfice de l'assureur. Le test 2018 n'a été regardé qu'une seule fois, à la fin.")
+    st.caption("Choisi sur deux validations internes à 2017 (jugées de juillet à septembre et d'octobre à décembre, "
+               "en apprenant sur les mois précédents), avec la ROC-AUC moyenne. Le test 2018 n'a été regardé "
+               "qu'une seule fois, à la fin.")
 
     classement = resume["classement"]
     validation = resume["validation_croisee"]
@@ -49,10 +52,12 @@ def afficher() -> None:
     with st.expander("Comment le modèle a été choisi (validation 2017)"):
         selection = resume["selection"].copy()
         selection["modele"] = selection["modele"].map(lambda nom: NOMS_LISIBLES.get(nom, nom))
-        selection.columns = ["Modèle", "ROC-AUC validation", "Bénéfice validation (R$)"]
-        st.dataframe(selection.style.format({"ROC-AUC validation": "{:.3f}", "Bénéfice validation (R$)": "{:,.0f}"}),
-                     hide_index=True)
-        st.caption("La forêt et la logistique sont presque à égalité : l'écart de bénéfice est faible.")
+        selection.columns = ["Modèle", "ROC-AUC validation (moyenne)", "Bénéfice validation (R$, moyenne)"]
+        st.dataframe(selection.style.format({"ROC-AUC validation (moyenne)": "{:.3f}",
+                                             "Bénéfice validation (R$, moyenne)": "{:,.0f}"}), hide_index=True)
+        st.caption("Le bénéfice ne départage pas les modèles : avec le plafond de 20 % de refus par État, "
+                   "les écarts sont faibles et changent de sens d'une fenêtre à l'autre. Le choix se fait donc "
+                   "sur la ROC-AUC.")
 
     col_gauche, col_droite = st.columns(2)
     with col_gauche:
