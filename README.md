@@ -25,6 +25,24 @@ Hypothèse : 20 % des clients achètent la garantie quand elle leur est proposé
 - **5 profils de commandes (K-means, bonus) :** le plus risqué en 2018 est le « petit colis entre États » (11,7 % de retards), pas le « grand voyageur » (7,0 %), à qui Olist promet déjà un long délai.
 - **63 % des commandes en retard reçoivent un avis de 1 ou 2 étoiles, contre 9 % des autres :** la garantie répond à un vrai besoin.
 
+## Robustesse : le gain du modèle dépend de la période
+
+**Pourquoi ce découpage.** Le modèle servira sur des commandes futures : on le teste donc sur une période qu'il n'a jamais vue, jamais sur un tirage au hasard qui mélangerait 2018 dans l'apprentissage. Le taux de retard varie beaucoup dans le temps (de 1,9 % à 20,5 % selon les mois), ce qui rendrait un découpage au hasard trop optimiste.
+
+**Test d'un second découpage** (question du COMEX) : l'apprentissage va jusqu'en mars 2018 (67 % des commandes, crise de février-mars incluse), le choix du modèle se fait sur janvier-mars 2018 et le test porte sur avril-août 2018. `python -m backend.robustesse` refait les deux découpages.
+
+| | Découpage principal | Découpage de robustesse |
+|---|---|---|
+| Apprentissage | 2017 (45 % des commandes) | janvier 2017 à mars 2018 (67 %) |
+| Test | janvier-août 2018, 8,7 % de sinistres | avril-août 2018, 5,3 % de sinistres |
+| Proposer à tous | 5 191 R$ | 12 338 R$ |
+| Modèle + règle d'équité | 11 049 R$ (×2,1) | 12 373 R$ (×1,0) |
+| ROC-AUC sur le test | 0,64 | 0,61 |
+
+Sur les mois de crise (janvier-mars 2018, la validation du second découpage), proposer la garantie à tous **perd 7 147 R$**, le modèle **n'en perd que 693**.
+
+**Ce que nous en concluons.** En période calme, la garantie à 4 R$ est rentable pour tout le monde et le modèle n'apporte presque rien. En période de crise, tout le monde perd de l'argent et le modèle limite fortement les pertes. Le ×2,1 du découpage principal vient surtout des mois de crise inclus dans son test. Le modèle est d'abord **une protection contre les périodes de forts retards**, d'où le suivi mensuel du ratio sinistres / primes et l'alerte à 0,90.
+
 ## Lancer le projet
 
 Dans un environnement virtuel Python 3.12 (`python -m venv .venv`, puis `.venv\Scripts\activate` sous Windows ou `source .venv/bin/activate` sous Mac et Linux) :
@@ -32,7 +50,7 @@ Dans un environnement virtuel Python 3.12 (`python -m venv .venv`, puis `.venv\S
 ```bash
 pip install -r requirements.txt
 python -m backend.train                  # archive -> SQLite (SQL) -> choix du modèle -> test 2018 (environ 1 min)
-python -m pytest                         # 18 tests
+python -m pytest                         # 20 tests
 python -m streamlit run frontend/app.py  # démonstrateur, 5 écrans
 ```
 
@@ -52,6 +70,7 @@ backend/                       logique métier (aucun import de streamlit)
   model.py                     variables, modèles, décision d'éligibilité, règle d'équité, métriques
   segmentation.py              K-means et personas (bonus non supervisé)
   train.py                     python -m backend.train : choix sur validation 2017, test 2018, sauvegarde
+  robustesse.py                python -m backend.robustesse : même chaîne avec un découpage plus tardif
   service.py                   SEULE interface appelée par le frontend
 frontend/
   app.py                       Streamlit : 5 onglets, affichage et saisie uniquement
@@ -79,15 +98,19 @@ data/raw/olist.zip             données brutes
 - **Le modèle sous-estime le niveau du risque en 2018** (7,0 % prédit contre 8,7 % observé), car les retards ont augmenté. Il classe pourtant bien : de 3,5 % à 17,6 % de retards entre la tranche la plus sûre et la plus risquée.
 - **Il ne prévoit pas les crises :** en février-mars 2018, les retards ont triplé. D'où le suivi mensuel et la règle de réentraînement (voir `docs/model_card.md`).
 - **Une ROC-AUC de 0,64 reste modeste :** les causes des retards (grèves, transporteur, météo) ne sont pas dans les données.
+- **Le gain dépend de la période :** très fort quand les retards sont élevés, quasi nul en période calme (voir « Robustesse »).
 - **Les données datent de 2017-2018** et forment un échantillon public d'Olist.
 
 ## Retours du COMEX et ce que nous avons changé
 
-*À compléter après la soutenance du J3.*
+Soutenance du J3. Points appréciés : beaucoup de chiffres, une explication orientée entreprise, des supports très visuels. Nous les avons gardés.
 
-| Retour | Ce que nous avons changé |
+| Retour | Notre réponse et ce que nous avons changé |
 |---|---|
-| | |
+| Pourquoi une alerte à 0,90 sur le ratio sinistres / primes ? | Le prix inclut une marge de 30 % : sur une commande acceptée, le sinistre attendu vaut au plus 4 / 1,3 ≈ 3,08 R$, soit un ratio d'environ 0,77 au maximum (0,68 observé sur le test 2018). À 0,90, les sinistres absorbent 90 % des primes et il ne reste que 10 % pour les frais de gestion ; au-delà de 1, la garantie perd de l'argent. Le seuil laisse le temps de réagir avant la perte. C'est un choix métier, à ajuster avec AssurColis selon ses frais réels. **Ajouté :** cette justification dans la Model Card. |
+| Pourquoi apprendre sur 2017 et tester sur 2018, alors qu'une crise touche 2018 ? | Le découpage reste temporel, car le modèle servira sur des commandes futures. **Ajouté :** un second découpage où l'apprentissage inclut la crise (67 % des commandes) et le test porte sur avril-août 2018 (`python -m backend.robustesse`, section « Robustesse »). Conclusion : le modèle protège surtout pendant les crises (perte de 693 R$ au lieu de 7 147 R$ sur janvier-mars 2018), et apporte peu en période calme. |
+| Le modèle se compare-t-il aux vrais retards ? | Oui : démontré à l'oral avec l'application. Sur tout le test 2018, le modèle prévoit 7,0 % de retards contre 8,7 % observés, et il classe bien les commandes : de 3,5 % de retards dans la tranche la plus sûre à 17,6 % dans la plus risquée (voir « Limites »). |
+| Comment obtenir des données sur les grèves et la météo ? | Météo : l'INMET (institut météo brésilien) publie les relevés quotidiens de ses stations (base BDMEP), à relier par date et par État. Grèves : le DIEESE recense les grèves au Brésil depuis 1998 (SAG-DIEESE). Condition : n'utiliser que ce qui est connu au moment du paiement (alerte météo, grève déjà annoncée), sinon c'est une fuite. **Ajouté :** ces deux sources dans les prochaines étapes de la Model Card. |
 
 ## Documents
 

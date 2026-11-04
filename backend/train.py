@@ -42,9 +42,10 @@ def decider_avec_modele(modele, table: pd.DataFrame, part_refus_max: float = PAR
     return proba, cout, proposee
 
 
-def choisir_modele(entrainement: pd.DataFrame) -> tuple[str, list]:
-    """Compare les candidats sur la validation interne à 2017. Le test n'est jamais regardé ici."""
-    apprentissage, validation = M.separer_periodes(entrainement, DATE_DEBUT_VALIDATION)
+def choisir_modele(entrainement: pd.DataFrame, date_validation: str = DATE_DEBUT_VALIDATION) -> tuple[str, list]:
+    """Compare les candidats sur la validation interne (fin de la période d'apprentissage).
+    Le test n'est jamais regardé ici."""
+    apprentissage, validation = M.separer_periodes(entrainement, date_validation)
     resultats = []
     for nom in M.CANDIDATS:
         modele = M.entrainer(nom, apprentissage)
