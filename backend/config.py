@@ -23,6 +23,11 @@ DATE_DEBUT = "2017-01-01"
 DATE_DEBUT_VALIDATION = "2017-10-01"  # choix du modèle : appris de janvier à septembre 2017, jugé d'octobre à décembre 2017
 DATE_DEBUT_TEST = "2018-01-01"  # entraînement final : 2017 ; test (regardé une seule fois) : janvier à août 2018
 DATE_FIN = "2018-09-01"  # exclue
+# Analyse de robustesse (retour du COMEX) : même chaîne, mais coupure plus tardive. L'apprentissage
+# inclut la crise de février-mars 2018 (environ 67 % des commandes) et le test porte sur avril-août 2018.
+# Le découpage principal ci-dessus ne change pas : voir `python -m backend.robustesse`.
+DATE_DEBUT_VALIDATION_ROBUSTESSE = "2018-01-01"
+DATE_DEBUT_TEST_ROBUSTESSE = "2018-04-01"
 
 # --- Paramètres métier de la garantie (hypothèses de l'assureur, voir note de cadrage) ---
 PRIX_GARANTIE = 4.0  # R$ : prix unique de la garantie, le même pour toutes les commandes proposées
