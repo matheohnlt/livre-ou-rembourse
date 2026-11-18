@@ -114,4 +114,4 @@ Soutenance du J3. Points appréciés : beaucoup de chiffres, une explication ori
 
 ## Documents
 
-[Guide d'installation](docs/installation.md) · [Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Journal d'usage de l'IA](docs/journal_ia.md)
+[Guide d'installation](docs/installation.md) · [Note de cadrage](docs/note_cadrage.md) · [Data Quality Card](docs/data_quality_card.md) · [Model Card](docs/model_card.md) · [Note de synthèse](docs/note_synthese.pdf) · [Slides de soutenance](docs/soutenance.pdf) · [Journal d'usage de l'IA](docs/journal_ia.md) 
